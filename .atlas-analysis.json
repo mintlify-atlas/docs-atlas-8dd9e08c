@@ -1,0 +1,161 @@
+{
+  "projectType": "framework",
+  "projectName": "BioAgents",
+  "projectDescription": "An AI scientist framework for autonomous deep research in biological sciences using multi-agent collaboration.",
+  "theme": "sequoia",
+  "primaryColor": "#9cb484",
+  "lightColor": "#c4cdba",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "setup"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/agents",
+              "concepts/deep-research",
+              "concepts/state-management"
+            ]
+          },
+          {
+            "group": "Agents",
+            "pages": [
+              "agents/overview",
+              "agents/literature",
+              "agents/analysis",
+              "agents/planning",
+              "agents/hypothesis",
+              "agents/reflection",
+              "agents/discovery",
+              "agents/file-upload",
+              "agents/reply"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/llm-providers",
+              "configuration/authentication",
+              "configuration/storage",
+              "configuration/character"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/chat-mode",
+              "features/deep-research-mode",
+              "features/knowledge-base",
+              "features/file-upload",
+              "features/paper-generation"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/docker",
+              "deployment/job-queue",
+              "deployment/scaling"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/custom-agents",
+              "advanced/payment-protocols",
+              "advanced/websockets",
+              "advanced/rate-limiting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Endpoints",
+            "pages": [
+              "api/chat",
+              "api/deep-research",
+              "api/status",
+              "api/health"
+            ]
+          },
+          {
+            "group": "File Management",
+            "pages": [
+              "api/files",
+              "api/artifacts"
+            ]
+          },
+          {
+            "group": "Paper Generation",
+            "pages": [
+              "api/paper-generation",
+              "api/paper-retrieval"
+            ]
+          },
+          {
+            "group": "Payment Endpoints",
+            "pages": [
+              "api/x402",
+              "api/b402"
+            ]
+          },
+          {
+            "group": "Admin",
+            "pages": [
+              "api/queue-dashboard",
+              "api/job-management"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-agent system for autonomous scientific research",
+    "Deep research mode with iterative hypothesis-driven investigation",
+    "Configurable literature search backends (OpenScholar, Edison, BioLit)",
+    "Data analysis agents with file upload support",
+    "Unified LLM provider interface (OpenAI, Anthropic, Google, OpenRouter)",
+    "Vector database with semantic search and reranking",
+    "JWT and micropayment authentication (x402/b402)",
+    "BullMQ job queue for horizontal scaling",
+    "LaTeX paper generation from research conversations",
+    "Real-time WebSocket notifications"
+  ],
+  "publicApiSurface": [
+    "POST /api/chat - Agent-based chat with literature search",
+    "POST /api/deep-research/start - Start deep research job",
+    "GET /api/deep-research/status/:messageId - Check research status",
+    "POST /api/deep-research/conversations/:conversationId/paper - Generate research paper",
+    "POST /api/files/upload - Direct file upload to S3",
+    "GET /api/artifacts/download - Download generated artifacts",
+    "POST /api/x402/chat - Payment-gated chat (Base/USDC)",
+    "POST /api/b402/chat - Payment-gated chat (BNB/USDT)",
+    "GET /admin/queues - Bull Board dashboard",
+    "fileUploadAgent() - Parse and store uploaded files",
+    "planningAgent() - Generate research plans",
+    "literatureAgent() - Search scientific literature",
+    "analysisAgent() - Perform data analysis",
+    "hypothesisAgent() - Generate research hypotheses",
+    "reflectionAgent() - Extract insights and update methodology",
+    "discoveryAgent() - Identify novel claims",
+    "replyAgent() - Generate user-facing responses",
+    "LLM class - Unified provider interface for chat completions"
+  ]
+}
