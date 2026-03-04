@@ -1,0 +1,521 @@
+---
+title: Environment Variables
+description: Complete reference for configuring BioAgents with environment variables
+---
+
+BioAgents is configured entirely through environment variables. This guide covers all available configuration options.
+
+## Core Configuration
+
+### Authentication & Security
+
+<ParamField path="BIOAGENTS_SECRET" type="string" required>
+  Shared secret for API authentication (JWT signing/verification and API key).
+  
+  Generate with:
+  ```bash
+  openssl rand -hex 32
+  ```
+  
+  <Warning>Never commit this value to version control. Use a strong random value in production.</Warning>
+</ParamField>
+
+<ParamField path="AUTH_MODE" type="string" default="none">
+  Authentication mode for the API.
+  
+  **Options:**
+  - `none` - No authentication required (development only)
+  - `jwt` - Require JWT tokens signed with `BIOAGENTS_SECRET` (production)
+  
+  <Info>x402/b402 payment authentication is controlled separately via `X402_ENABLED`/`B402_ENABLED` flags.</Info>
+</ParamField>
+
+<ParamField path="ALLOWED_ORIGINS" type="string">
+  Comma-separated list of allowed origins for CORS requests.
+  
+  **Required in production** to prevent CSRF attacks. Leave empty for development (defaults to `localhost:3000`, `localhost:5173`).
+  
+  ```bash
+  ALLOWED_ORIGINS=https://bioagent-platform.bioagents.dev,https://app.bioagents.xyz
+  ```
+</ParamField>
+
+<ParamField path="MAX_JWT_EXPIRATION" type="number" default="3600">
+  Maximum JWT expiration time in seconds. Tokens with longer expiration will be rejected.
+  
+  Default: 3600 (1 hour)
+</ParamField>
+
+### Server Configuration
+
+<ParamField path="NODE_ENV" type="string" default="development">
+  Node environment mode.
+  
+  **Options:**
+  - `development` - Development mode with verbose logging
+  - `production` - Production mode with optimized logging
+</ParamField>
+
+<ParamField path="PORT" type="number" default="3000">
+  HTTP server port.
+</ParamField>
+
+### Database (Supabase)
+
+<ParamField path="SUPABASE_URL" type="string" required>
+  Your Supabase project URL.
+  
+  Find in: Supabase Dashboard > Settings > API > Project URL
+</ParamField>
+
+<ParamField path="SUPABASE_ANON_KEY" type="string" required>
+  Supabase anonymous key for client-side operations.
+  
+  Find in: Supabase Dashboard > Settings > API > `anon` public key
+</ParamField>
+
+<ParamField path="SUPABASE_SERVICE_KEY" type="string">
+  Service role key for backend operations (bypasses Row Level Security).
+  
+  **Required for production** when RLS is enabled.
+  
+  Find in: Supabase Dashboard > Settings > API > `service_role` key
+  
+  <Warning>Keep this secret. It has full database access.</Warning>
+</ParamField>
+
+<ParamField path="SUPABASE_FULL_URL" type="string">
+  Full database connection URL for migrations.
+  
+  Used by migration containers. Format: `postgresql://user:password@host:port/database`
+</ParamField>
+
+## LLM Provider Configuration
+
+See [LLM Providers](/configuration/llm-providers) for detailed configuration.
+
+<ParamField path="OPENAI_API_KEY" type="string">
+  OpenAI API key for GPT models.
+</ParamField>
+
+<ParamField path="ANTHROPIC_API_KEY" type="string">
+  Anthropic API key for Claude models.
+</ParamField>
+
+<ParamField path="GOOGLE_API_KEY" type="string">
+  Google API key for Gemini models.
+</ParamField>
+
+<ParamField path="OPENROUTER_API_KEY" type="string">
+  OpenRouter API key for accessing multiple model providers.
+</ParamField>
+
+### LLM Model Selection
+
+Each agent type can be configured with a specific provider and model:
+
+<ParamField path="REPLY_LLM_PROVIDER" type="string" default="openai">
+  Provider for chat reply generation.
+  
+  Options: `openai`, `anthropic`, `google`, `openrouter`
+</ParamField>
+
+<ParamField path="REPLY_LLM_MODEL" type="string" default="gpt-5">
+  Model for chat reply generation.
+</ParamField>
+
+<ParamField path="HYP_LLM_PROVIDER" type="string" default="openai">
+  Provider for hypothesis generation.
+</ParamField>
+
+<ParamField path="HYP_LLM_MODEL" type="string" default="gpt-5">
+  Model for hypothesis generation.
+</ParamField>
+
+<ParamField path="PLANNING_LLM_PROVIDER" type="string" default="openai">
+  Provider for research planning.
+</ParamField>
+
+<ParamField path="PLANNING_LLM_MODEL" type="string" default="gpt-5">
+  Model for research planning.
+</ParamField>
+
+<ParamField path="STRUCTURED_LLM_PROVIDER" type="string" default="openai">
+  Provider for structured output generation.
+</ParamField>
+
+<ParamField path="STRUCTURED_LLM_MODEL" type="string" default="gpt-5">
+  Model for structured output generation.
+</ParamField>
+
+<ParamField path="CONTINUE_RESEARCH_LLM_PROVIDER" type="string" default="anthropic">
+  Provider for autonomous research continuation decisions.
+</ParamField>
+
+<ParamField path="CONTINUE_RESEARCH_LLM_MODEL" type="string" default="claude-sonnet-4-5-20250929">
+  Model for autonomous research continuation decisions.
+</ParamField>
+
+## External Services
+
+### Literature Search
+
+<ParamField path="OPENSCHOLAR_API_URL" type="string">
+  OpenScholar API endpoint for literature search.
+</ParamField>
+
+<ParamField path="PRIMARY_LITERATURE_AGENT" type="string">
+  Primary literature search agent to use.
+</ParamField>
+
+<ParamField path="BIO_LIT_AGENT_API_URL" type="string">
+  BioAgents Literature Agent API endpoint.
+</ParamField>
+
+<ParamField path="BIO_LIT_AGENT_API_KEY" type="string">
+  API key for BioAgents Literature Agent.
+</ParamField>
+
+### Data Analysis
+
+<ParamField path="EDISON_API_URL" type="string">
+  Edison API endpoint for literature and data analysis.
+  
+  Deploy from: [bio-edison-api](https://github.com/bio-xyz/bio-edison-api)
+</ParamField>
+
+<ParamField path="EDISON_API_KEY" type="string">
+  API key for Edison API.
+</ParamField>
+
+<ParamField path="PRIMARY_ANALYSIS_AGENT" type="string">
+  Primary data analysis agent to use.
+  
+  **Options:**
+  - `edison` or empty - Use Edison Data Analysis Agent (default)
+  - `bio` - Use BioAgents Data Analysis Agent
+</ParamField>
+
+<ParamField path="DATA_ANALYSIS_API_URL" type="string">
+  BioAgents Data Analysis Agent API endpoint.
+</ParamField>
+
+<ParamField path="DATA_ANALYSIS_API_KEY" type="string">
+  API key for BioAgents Data Analysis Agent.
+</ParamField>
+
+## Embeddings & Vector Search
+
+<ParamField path="EMBEDDING_PROVIDER" type="string" default="openai">
+  Provider for text embeddings.
+  
+  Options: `openai`, `cohere`
+</ParamField>
+
+<ParamField path="TEXT_EMBEDDING_MODEL" type="string" default="text-embedding-3-large">
+  Model for text embeddings.
+</ParamField>
+
+<ParamField path="COHERE_API_KEY" type="string">
+  Cohere API key (required if using Cohere embeddings or reranking).
+</ParamField>
+
+<ParamField path="CHUNK_SIZE" type="number" default="2000">
+  Number of characters per document chunk.
+</ParamField>
+
+<ParamField path="CHUNK_OVERLAP" type="number" default="200">
+  Overlap between consecutive chunks.
+</ParamField>
+
+<ParamField path="VECTOR_SEARCH_LIMIT" type="number" default="20">
+  Number of vector search results to retrieve.
+</ParamField>
+
+<ParamField path="RERANK_FINAL_LIMIT" type="number" default="5">
+  Number of results after reranking.
+</ParamField>
+
+<ParamField path="USE_RERANKING" type="boolean" default="true">
+  Enable reranking of search results.
+</ParamField>
+
+<ParamField path="SIMILARITY_THRESHOLD" type="number" default="0.75">
+  Minimum similarity score for vector search results.
+</ParamField>
+
+<ParamField path="RERANKER_SCORE_THRESHOLD" type="number" default="0.3">
+  Minimum score for reranked results.
+</ParamField>
+
+<ParamField path="KNOWLEDGE_DOCS_PATH" type="string" default="docs">
+  Path to knowledge documents for RAG.
+</ParamField>
+
+## Job Queue (BullMQ)
+
+<ParamField path="USE_JOB_QUEUE" type="boolean" default="false">
+  Enable job queue with BullMQ and Redis.
+  
+  - `false` - In-process execution (simple, for development)
+  - `true` - Queue jobs in Redis (for production, supports horizontal scaling)
+</ParamField>
+
+<ParamField path="REDIS_URL" type="string" default="redis://localhost:6379">
+  Redis connection URL for BullMQ.
+  
+  Required when `USE_JOB_QUEUE=true`.
+</ParamField>
+
+<ParamField path="REDIS_HOST" type="string" default="localhost">
+  Redis host (alternative to `REDIS_URL`).
+</ParamField>
+
+<ParamField path="REDIS_PORT" type="number" default="6379">
+  Redis port (alternative to `REDIS_URL`).
+</ParamField>
+
+<ParamField path="REDIS_PASSWORD" type="string">
+  Redis password (alternative to `REDIS_URL`).
+</ParamField>
+
+### Queue Concurrency
+
+<ParamField path="CHAT_QUEUE_CONCURRENCY" type="number" default="5">
+  Number of concurrent chat jobs per worker.
+</ParamField>
+
+<ParamField path="DEEP_RESEARCH_QUEUE_CONCURRENCY" type="number" default="3">
+  Number of concurrent deep research jobs per worker.
+</ParamField>
+
+<ParamField path="PAPER_GENERATION_CONCURRENCY" type="number" default="1">
+  Number of concurrent paper generation jobs per worker.
+</ParamField>
+
+<ParamField path="MAX_CONCURRENT_PAPER_JOBS" type="number" default="3">
+  Maximum concurrent paper jobs across all users.
+</ParamField>
+
+### Rate Limiting
+
+<ParamField path="CHAT_RATE_LIMIT_PER_MINUTE" type="number" default="10">
+  Maximum chat requests per user per minute.
+</ParamField>
+
+<ParamField path="DEEP_RESEARCH_RATE_LIMIT_PER_5MIN" type="number" default="3">
+  Maximum deep research requests per user per 5 minutes.
+</ParamField>
+
+### Bull Board Admin Dashboard
+
+<ParamField path="ADMIN_USERNAME" type="string" default="admin">
+  Username for Bull Board admin dashboard.
+</ParamField>
+
+<ParamField path="ADMIN_PASSWORD" type="string">
+  Password for Bull Board admin dashboard.
+  
+  **Required in production** when `USE_JOB_QUEUE=true`.
+</ParamField>
+
+## Task Timeouts
+
+<ParamField path="BIO_ANALYSIS_TASK_TIMEOUT_MINUTES" type="number" default="60">
+  Timeout for BioAgents data analysis tasks (in minutes).
+</ParamField>
+
+<ParamField path="BIO_LITERATURE_TASK_TIMEOUT_MINUTES" type="number" default="60">
+  Timeout for BioAgents literature search tasks (in minutes).
+</ParamField>
+
+<ParamField path="EDISON_TASK_TIMEOUT_MINUTES" type="number" default="30">
+  Timeout for Edison tasks (in minutes).
+</ParamField>
+
+<ParamField path="FILE_STATUS_TTL_MINUTES" type="number" default="60">
+  TTL for file status records (in minutes).
+</ParamField>
+
+## Autonomous Research Configuration
+
+<ParamField path="MAX_AUTO_ITERATIONS" type="number" default="5">
+  Maximum autonomous iterations before asking user (when `fullyAutonomous=false`).
+  
+  When `fullyAutonomous=true`, the hard cap is 20 iterations regardless of this setting.
+</ParamField>
+
+## Storage Configuration
+
+See [Storage](/configuration/storage) for detailed configuration.
+
+<ParamField path="STORAGE_PROVIDER" type="string">
+  Storage provider for file uploads.
+  
+  Options: `s3` (if empty or not set, storage is disabled)
+</ParamField>
+
+## Character Configuration
+
+See [Character](/configuration/character) for detailed configuration.
+
+<ParamField path="CHARACTER_FILE" type="string" default="characters/bios.json">
+  Path to character configuration JSON file.
+  
+  Available characters:
+  - `characters/bios.json` - Default BIOS scientific research assistant
+  - `characters/aubrai.json` - Aubrai (Dr Aubrey de Grey persona for longevity research)
+</ParamField>
+
+<ParamField path="CHARACTER_JSON" type="string">
+  Inline JSON string for character configuration (alternative to `CHARACTER_FILE`).
+  
+  Useful for simple deployments:
+  ```bash
+  CHARACTER_JSON='{"name":"MyAgent","system":"You are MyAgent..."}'
+  ```
+</ParamField>
+
+## Agent Identity
+
+<ParamField path="AGENT_NAME" type="string">
+  Name used for paper authorship and prompts.
+  
+  If not set, papers will use "Anonymous" or just user email as author.
+</ParamField>
+
+<ParamField path="AGENT_EMAIL" type="string">
+  Email used for paper authorship.
+</ParamField>
+
+## SEO Configuration
+
+<ParamField path="SEO_TITLE" type="string">
+  Page title for SEO. Leave empty to use defaults.
+</ParamField>
+
+<ParamField path="SEO_DESCRIPTION" type="string">
+  Page description for SEO. Leave empty to use defaults.
+</ParamField>
+
+<ParamField path="FAVICON_URL" type="string">
+  URL to favicon. Leave empty to use defaults.
+</ParamField>
+
+<ParamField path="OG_IMAGE_URL" type="string">
+  URL to Open Graph image. Leave empty to use defaults.
+</ParamField>
+
+## Development UI
+
+<ParamField path="UI_PASSWORD" type="string">
+  Password to protect the development UI.
+  
+  Leave empty or remove this line to disable authentication.
+</ParamField>
+
+## Payment Protocols
+
+See [Authentication](/configuration/authentication) for detailed configuration of x402 and b402 payment protocols.
+
+### x402 (Base/USDC)
+
+<ParamField path="X402_ENABLED" type="boolean" default="false">
+  Enable x402 payment protocol (USDC payments on Base network).
+</ParamField>
+
+### b402 (BNB Chain/USDT)
+
+<ParamField path="B402_ENABLED" type="boolean" default="false">
+  Enable b402 payment protocol (USDT payments on BNB Chain).
+</ParamField>
+
+### Coinbase Developer Platform
+
+<ParamField path="CDP_API_KEY_ID" type="string">
+  Coinbase Developer Platform API key ID.
+  
+  Required for x402 mainnet. Get from: [CDP Portal](https://portal.cdp.coinbase.com/access/api)
+</ParamField>
+
+<ParamField path="CDP_API_KEY_SECRET" type="string">
+  Coinbase Developer Platform API key secret.
+</ParamField>
+
+<ParamField path="CDP_PROJECT_ID" type="string">
+  Coinbase Developer Platform project ID.
+</ParamField>
+
+## Example Configuration
+
+<CodeGroup>
+
+```bash Development
+# Basic development setup
+NODE_ENV=development
+AUTH_MODE=none
+PORT=3000
+
+# Database
+SUPABASE_URL=your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+
+# LLM
+OPENAI_API_KEY=sk-...
+REPLY_LLM_PROVIDER=openai
+REPLY_LLM_MODEL=gpt-4
+
+# In-process execution (no Redis needed)
+USE_JOB_QUEUE=false
+```
+
+```bash Production
+# Production setup
+NODE_ENV=production
+AUTH_MODE=jwt
+BIOAGENTS_SECRET=your-secure-secret-here
+ALLOWED_ORIGINS=https://app.yourdomain.com
+PORT=3000
+
+# Database
+SUPABASE_URL=your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_KEY=your-service-key
+
+# LLM
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+REPLY_LLM_PROVIDER=openai
+REPLY_LLM_MODEL=gpt-4
+
+# Job Queue
+USE_JOB_QUEUE=true
+REDIS_URL=redis://your-redis-host:6379
+ADMIN_PASSWORD=your-secure-admin-password
+
+# Storage
+STORAGE_PROVIDER=s3
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_REGION=us-east-1
+S3_BUCKET=your-bucket-name
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="LLM Providers" icon="brain" href="/configuration/llm-providers">
+    Configure OpenAI, Anthropic, Google, and OpenRouter
+  </Card>
+  <Card title="Authentication" icon="lock" href="/configuration/authentication">
+    Set up JWT, x402, or b402 authentication
+  </Card>
+  <Card title="Storage" icon="database" href="/configuration/storage">
+    Configure S3 storage for file uploads
+  </Card>
+  <Card title="Character" icon="user" href="/configuration/character">
+    Customize your agent's persona
+  </Card>
+</CardGroup>

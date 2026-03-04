@@ -1,80 +1,284 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get BioAgents up and running in minutes with this essential setup guide
 ---
 
-## Get started in three steps
+This guide will help you get BioAgents running with the minimum required configuration. For advanced features, see the complete [Setup Guide](/setup).
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, make sure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- [Bun](https://bun.sh/docs/installation) installed (required package manager)
+- Node.js v23.3.0 or later
+- A PostgreSQL database (we recommend [Supabase](https://supabase.com) for easy setup)
+- An OpenAI API key (or another LLM provider)
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/bio-xyz/BioAgents.git
+    cd BioAgents
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    bun install
+    ```
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    This will install all required packages including:
+    - Elysia (web framework)
+    - Anthropic, OpenAI, Google AI SDKs
+    - Supabase client
+    - Vector database dependencies
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create your environment file:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```bash
+    cp .env.example .env
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    Edit `.env` and configure the following required settings:
+    
+    ```bash .env
+    # Authentication (use 'none' for development)
+    AUTH_MODE=none
+    BIOAGENTS_SECRET=change-me-to-a-secure-random-string
+    
+    # LLM Configuration
+    OPENAI_API_KEY=sk-...
+    REPLY_LLM_PROVIDER=openai
+    REPLY_LLM_MODEL=gpt-4o
+    HYP_LLM_PROVIDER=openai
+    HYP_LLM_MODEL=gpt-4o
+    PLANNING_LLM_PROVIDER=openai
+    PLANNING_LLM_MODEL=gpt-4o
+    STRUCTURED_LLM_PROVIDER=openai
+    STRUCTURED_LLM_MODEL=gpt-4o
+    
+    # Database
+    SUPABASE_URL=https://your-project.supabase.co
+    SUPABASE_ANON_KEY=your-anon-key
+    SUPABASE_SERVICE_KEY=your-service-role-key
+    
+    # Vector Embeddings
+    EMBEDDING_PROVIDER=openai
+    TEXT_EMBEDDING_MODEL=text-embedding-3-large
+    
+    # Server
+    PORT=3000
+    NODE_ENV=development
+    ```
+    
+    <Note>
+    Get your Supabase credentials from the [Supabase Dashboard](https://supabase.com/dashboard):
+    - **SUPABASE_URL**: Settings > API > Project URL
+    - **SUPABASE_ANON_KEY**: Settings > API > anon/public key
+    - **SUPABASE_SERVICE_KEY**: Settings > API > service_role key (keep this secret!)
+    </Note>
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Set up the database">
+    Run database migrations to create all required tables:
+    
+    ```bash
+    bun run migrate
+    ```
+    
+    This will apply migrations for:
+    - Core tables (users, conversations, messages, states)
+    - Vector database setup (pgvector extension)
+    - Indexes, functions, and triggers
+    
+    <Warning>
+    Make sure your `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are correctly set before running migrations.
+    </Warning>
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Build the frontend">
+    Build the Preact-based UI:
+    
+    ```bash
+    bun run build:client
+    ```
+    
+    The built files will be placed in `client/dist/` and served by the backend.
+  </Step>
 
-### Step 3: Go live
+  <Step title="Start the development server">
+    ```bash
+    bun run dev
+    ```
+    
+    The application will be available at `http://localhost:3000`
+    
+    <Note>
+    The dev server includes hot reload - changes to backend files will automatically restart the server.
+    </Note>
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Verify Your Setup
 
-## Next steps
+Once the server is running, you should see:
 
-Now that you have your docs running, explore these key features:
+```bash
+[INFO] Server started on port 3000
+[INFO] Vector database initialized
+[INFO] Processing documents from docs/ directory
+```
+
+Open your browser to `http://localhost:3000` and you should see the BioAgents chat interface.
+
+## Basic Usage
+
+### Chat Mode
+
+Try asking a research question:
+
+```
+What is rapamycin and what are its effects on longevity?
+```
+
+The agent will:
+1. Search available literature (if configured)
+2. Synthesize findings with citations
+3. Provide a comprehensive answer
+
+### Adding Custom Knowledge
+
+To search your own documents:
+
+<Steps>
+  <Step title="Add documents to the docs folder">
+    Place your documents in the `docs/` directory:
+    
+    ```bash
+    docs/
+    ├── research-paper-1.pdf
+    ├── notes.md
+    └── dataset-description.txt
+    ```
+    
+    Supported formats: PDF, Markdown (.md), DOCX, TXT
+  </Step>
+
+  <Step title="Restart the server">
+    The server will automatically process new documents on startup:
+    
+    ```bash
+    bun run dev
+    ```
+    
+    You'll see:
+    ```
+    [INFO] Processing document: research-paper-1.pdf
+    [INFO] Generated 15 chunks for research-paper-1.pdf
+    [INFO] Stored vectors in database
+    ```
+  </Step>
+
+  <Step title="Query your knowledge base">
+    The literature agent will now include your custom documents in search results.
+  </Step>
+</Steps>
+
+## Common Commands
+
+<CodeGroup>
+```bash Development
+# Start dev server with hot reload
+bun run dev
+
+# Watch UI changes
+bun run client/build.ts --watch
+```
+
+```bash Production
+# Build client
+bun run build:client
+
+# Start production server
+bun run start
+```
+
+```bash Database
+# Run migrations
+bun run migrate
+
+# Create new migration
+bun run migrate:new migration_name
+```
+</CodeGroup>
+
+## Next Steps
+
+You now have a basic BioAgents instance running! Here's what to explore next:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Complete Setup" icon="cog" href="/setup">
+    Configure advanced features like analysis agents, job queues, and payment protocols
+  </Card>
+  
+  <Card title="Literature Agents" icon="book-open" href="/setup#literature-agents-setup">
+    Set up OpenScholar, Edison, or BioLiterature for enhanced literature search
+  </Card>
+  
+  <Card title="Analysis Agents" icon="chart-line" href="/setup#analysis-agents-setup">
+    Configure Edison or BIO analysis agents for dataset processing
+  </Card>
+  
+  <Card title="Authentication" icon="lock" href="/setup#authentication-setup">
+    Enable JWT authentication or x402 payments for production deployments
+  </Card>
 </CardGroup>
 
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Database connection errors">
+    Make sure your Supabase credentials are correct:
+    
+    ```bash
+    # Test connection
+    curl https://your-project.supabase.co/rest/v1/ \
+      -H "apikey: your-anon-key"
+    ```
+    
+    You should receive a valid response. If not, double-check your `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+  </Accordion>
+  
+  <Accordion title="Migration errors">
+    If migrations fail:
+    
+    1. Verify `SUPABASE_SERVICE_KEY` is set correctly
+    2. Check that your database user has permission to create tables
+    3. Try running migrations manually via Supabase SQL Editor
+  </Accordion>
+  
+  <Accordion title="LLM API errors">
+    If you get API key errors:
+    
+    1. Verify your `OPENAI_API_KEY` is valid
+    2. Check you have sufficient credits/quota
+    3. Try using a different model (e.g., `gpt-3.5-turbo` for testing)
+  </Accordion>
+  
+  <Accordion title="Vector search not working">
+    If custom documents aren't being searched:
+    
+    1. Check that documents are in the `docs/` folder
+    2. Look for processing logs on startup
+    3. Verify `EMBEDDING_PROVIDER` and `TEXT_EMBEDDING_MODEL` are set
+    4. Check that pgvector extension is installed in your database
+  </Accordion>
+</AccordionGroup>
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+For more detailed troubleshooting and advanced configuration, see the complete [Setup Guide](/setup).
 </Note>

@@ -1,0 +1,265 @@
+---
+title: "Discovery Agent"
+description: "Identify novel scientific claims with evidence links"
+icon: "microscope"
+---
+
+The Discovery Agent identifies scientifically rigorous discoveries from completed tasks and links them to supporting evidence. It maintains traceability from claims to tasks to job IDs.
+
+## Function Signature
+
+```typescript
+// src/agents/discovery/index.ts
+export async function discoveryAgent(input: {
+  conversationState: ConversationState;
+  message: Message;
+  tasksToConsider: PlanTask[];
+  hypothesis?: string;
+}): Promise<DiscoveryAgentResult>;
+
+type DiscoveryAgentResult = {
+  discoveries: Discovery[];
+  start: string;
+  end: string;
+};
+
+type Discovery = {
+  claim: string;
+  evidence: string;
+  novelty: string;
+  taskId: string;      // Links to PlanTask
+  jobId?: string;      // External job ID for traceability
+  artifactIds?: string[]; // Generated artifacts supporting this claim
+};
+```
+
+## What It Does
+
+### Identifies Novel Claims
+
+Extracts scientifically rigorous discoveries from ANALYSIS tasks:
+
+```typescript
+const result = await discoveryAgent({
+  conversationState,
+  message,
+  tasksToConsider: [
+    {
+      id: "task-1",
+      type: "ANALYSIS",
+      objective: "Analyze differential gene expression",
+      output: "Analysis identified 342 DEGs (FDR < 0.05). Key regulators: TP53 (log2FC=-2.3), MYC (log2FC=1.8).",
+      jobId: "bio-analysis-123",
+      artifacts: [
+        { id: "artifact-1", filename: "volcano_plot.png" }
+      ]
+    }
+  ],
+  hypothesis: "p53-p21 axis regulates cellular senescence"
+});
+
+// Returns:
+// {
+//   discoveries: [
+//     {
+//       claim: "TP53 shows significant downregulation (log2 fold change -2.3, FDR < 0.05) in senescent cells",
+//       evidence: "Differential expression analysis of RNA-seq data",
+//       novelty: "Confirms p53 involvement in senescence pathway",
+//       taskId: "task-1",
+//       jobId: "bio-analysis-123",
+//       artifactIds: ["artifact-1"]
+//     }
+//   ]
+// }
+```
+
+### Updates Existing Discoveries
+
+Enriches existing discoveries with new evidence:
+
+```typescript
+conversationState.values.discoveries = [
+  {
+    claim: "p53 regulates senescence",
+    evidence: "Literature review",
+    taskId: "task-0"
+  }
+];
+
+const result = await discoveryAgent({
+  conversationState,
+  message,
+  tasksToConsider: [newAnalysisTask],
+  hypothesis
+});
+
+// Merges or extends existing discoveries
+```
+
+### Maintains Traceability
+
+Each discovery links back to:
+- **taskId**: Which task produced this finding
+- **jobId**: External job ID (Edison/BioAgents)
+- **artifactIds**: Generated files (plots, tables)
+
+This enables complete traceability in paper generation.
+
+## Discovery Structure
+
+<ParamField path="claim" type="string" required>
+  The scientific claim or finding
+</ParamField>
+
+<ParamField path="evidence" type="string" required>
+  Supporting evidence from analysis
+</ParamField>
+
+<ParamField path="novelty" type="string" required>
+  What makes this discovery novel or important
+</ParamField>
+
+<ParamField path="taskId" type="string" required>
+  ID of task that produced this discovery
+</ParamField>
+
+<ParamField path="jobId" type="string">
+  External job ID for full traceability
+</ParamField>
+
+<ParamField path="artifactIds" type="string[]">
+  IDs of generated artifacts (plots, tables, code)
+</ParamField>
+
+## Usage Example
+
+```typescript
+// src/routes/deep-research/start.ts
+const discoveryResult = await discoveryAgent({
+  conversationState,
+  message,
+  tasksToConsider: completedMaxTasks,
+  hypothesis: hypothesisText
+});
+
+// Update conversation state
+conversationState.values.discoveries = discoveryResult.discoveries;
+
+await updateConversationState(
+  conversationState.id,
+  conversationState.values
+);
+```
+
+## Incremental vs Full Updates
+
+The caller decides which tasks to analyze:
+
+<Tabs>
+  <Tab title="Incremental">
+    Pass only new tasks to update discoveries:
+    
+    ```typescript
+    const newTasks = completedMaxTasks.filter(t => 
+      !previousTaskIds.includes(t.id)
+    );
+    
+    await discoveryAgent({
+      conversationState,
+      message,
+      tasksToConsider: newTasks,
+      hypothesis
+    });
+    ```
+  </Tab>
+  
+  <Tab title="Full Refresh">
+    Pass all tasks to regenerate discoveries:
+    
+    ```typescript
+    await discoveryAgent({
+      conversationState,
+      message,
+      tasksToConsider: completedMaxTasks,
+      hypothesis
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Discovery Criteria
+
+The agent identifies discoveries that are:
+
+<AccordionGroup>
+  <Accordion title="Scientifically rigorous">
+    Claims must be supported by data analysis, not just literature synthesis.
+  </Accordion>
+  
+  <Accordion title="Quantitative">
+    Includes specific metrics (fold changes, p-values, effect sizes).
+  </Accordion>
+  
+  <Accordion title="Novel or confirmatory">
+    Either new findings or validation of hypothesis.
+  </Accordion>
+  
+  <Accordion title="Traceable">
+    Linked to specific task outputs and job IDs.
+  </Accordion>
+</AccordionGroup>
+
+## Integration with Paper Generation
+
+Discoveries flow into paper generation with full traceability:
+
+```typescript
+// src/routes/deep-research/paper.ts
+const discoveries = conversationState.values.discoveries || [];
+
+for (const discovery of discoveries) {
+  // Link to task output
+  const task = completedTasks.find(t => t.id === discovery.taskId);
+  
+  // Link to artifacts
+  const artifacts = task?.artifacts?.filter(a => 
+    discovery.artifactIds?.includes(a.id)
+  );
+  
+  // Include in paper
+  paperContent += `\n\nDiscovery: ${discovery.claim}\n`;
+  paperContent += `Evidence: ${discovery.evidence}\n`;
+  paperContent += `Artifacts: ${artifacts.map(a => a.filename).join(", ")}\n`;
+}
+```
+
+## Configuration
+
+<ParamField path="STRUCTURED_LLM_PROVIDER" type="string" default="openai">
+  LLM provider: `openai`, `anthropic`, `google`, or `openrouter`
+</ParamField>
+
+<ParamField path="STRUCTURED_LLM_MODEL" type="string" default="gpt-5">
+  Model name for discovery extraction
+</ParamField>
+
+## Historical Note
+
+Previously, discovery extraction was handled by the [Reflection Agent](/agents/reflection). It's now a separate agent for better separation of concerns:
+
+- **Reflection Agent**: Updates world state (objective, insights, methodology)
+- **Discovery Agent**: Identifies and structures scientific claims
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Reflection Agent" icon="mirror" href="/agents/reflection">
+    Updates world state with insights
+  </Card>
+  <Card title="Paper Generation" icon="file-pdf" href="/features/paper-generation">
+    Uses discoveries for LaTeX papers
+  </Card>
+  <Card title="Analysis Agent" icon="chart-line" href="/agents/analysis">
+    Generates analysis outputs
+  </Card>
+</CardGroup>

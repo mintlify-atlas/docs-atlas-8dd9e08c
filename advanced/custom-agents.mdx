@@ -1,0 +1,450 @@
+---
+title: 'Custom Agents'
+description: 'Learn how to create custom agents for BioAgents'
+icon: 'robot'
+---
+
+## Overview
+
+BioAgents uses a modular agent architecture where specialized agents handle different aspects of research. Each agent is an independent function that reads state, performs specific tasks, and returns results without directly mutating the global state.
+
+## Agent Architecture
+
+Agents in BioAgents follow a consistent pattern:
+
+1. **Input**: Receive conversation state, message, and context
+2. **Processing**: Execute specialized logic (LLM calls, external APIs, data processing)
+3. **Output**: Return results with timing information
+4. **State Updates**: Caller handles state mutations, not the agent
+
+<Info>
+**Key Principle**: Agents are pure functions that don't modify state directly. This prevents conflicts and maintains clear causality.
+</Info>
+
+## Core Agent Types
+
+BioAgents includes several core agent types:
+
+### Planning Agent
+
+Plans research tasks based on conversation state and user input.
+
+```typescript
+// src/agents/planning/index.ts
+export async function planningAgent(input: {
+  state: State;
+  conversationState: ConversationState;
+  message: Message;
+  mode?: PlanningMode;  // "initial" | "next"
+  usageType?: TokenUsageType;
+  researchMode?: ResearchMode;
+}): Promise<PlanningResult> {
+  // Returns: { currentObjective, plan }
+}
+```
+
+**Responsibilities**:
+- Creates initial research plan from user question
+- Plans next iteration tasks based on completed work
+- Resolves dataset paths for analysis tasks
+- Adapts to research mode (steering/semi-autonomous/fully-autonomous)
+
+### Hypothesis Agent
+
+Generates or updates scientific hypotheses from completed tasks.
+
+```typescript
+// src/agents/hypothesis/index.ts
+export async function hypothesisAgent(input: {
+  objective: string;
+  message: Message;
+  conversationState: ConversationState;
+  completedTasks: PlanTask[];
+}): Promise<HypothesisResult> {
+  // Returns: { hypothesis, thought, start, end, mode }
+}
+```
+
+**Responsibilities**:
+- Synthesizes task outputs into scientific claims
+- Updates existing hypothesis with new evidence
+- Maintains research context across iterations
+
+### Reflection Agent
+
+Updates world state based on completed research.
+
+```typescript
+// src/agents/reflection/index.ts
+export async function reflectionAgent(input: {
+  conversationState: ConversationState;
+  message: Message;
+  completedMaxTasks: PlanTask[];
+  hypothesis?: string;
+}): Promise<ReflectionResult> {
+  // Returns: { conversationTitle, evolvingObjective, currentObjective, keyInsights, methodology, start, end }
+}
+```
+
+**Responsibilities**:
+- Extracts key insights from completed tasks
+- Evolves research objectives across iterations
+- Updates methodology based on new findings
+- Generates conversation titles
+
+### Discovery Agent
+
+Identifies and structures scientific discoveries from research.
+
+```typescript
+// src/agents/discovery/index.ts
+export async function discoveryAgent(input: {
+  conversationState: ConversationState;
+  message: Message;
+  tasksToConsider: PlanTask[];
+  hypothesis?: string;
+}): Promise<DiscoveryAgentResult> {
+  // Returns: { discoveries, start, end }
+}
+```
+
+**Responsibilities**:
+- Extracts scientifically rigorous discoveries from analysis tasks
+- Links discoveries to supporting evidence (task IDs, job IDs)
+- Updates existing discoveries with new evidence
+- Validates novelty claims against literature
+
+### Reply Agent
+
+Generates user-facing responses summarizing research work.
+
+```typescript
+// src/agents/reply/index.ts
+export async function replyAgent(input: {
+  conversationState: ConversationState;
+  message: Message;
+  completedMaxTasks: PlanTask[];
+  hypothesis?: string;
+  nextPlan: PlanTask[];
+  isFinal?: boolean;
+}): Promise<ReplyResult> {
+  // Returns: { reply, summary, start, end }
+}
+```
+
+**Responsibilities**:
+- Summarizes completed work and results
+- Presents hypothesis and discoveries
+- Presents next iteration plan
+- Asks for user feedback
+
+## Creating a Custom Agent
+
+### Step 1: Define Agent Interface
+
+Create a new directory under `src/agents/` with the agent name:
+
+```typescript
+// src/agents/myagent/index.ts
+import type { ConversationState, Message } from "../../types/core";
+import logger from "../../utils/logger";
+
+export interface MyAgentInput {
+  conversationState: ConversationState;
+  message: Message;
+  customParam?: string;
+}
+
+export interface MyAgentResult {
+  output: string;
+  confidence: number;
+  start: string;
+  end: string;
+}
+
+export async function myAgent(input: MyAgentInput): Promise<MyAgentResult> {
+  const { conversationState, message, customParam } = input;
+  const start = new Date().toISOString();
+  
+  logger.info({ customParam }, "my_agent_started");
+  
+  try {
+    // Your agent logic here
+    const output = await processData(conversationState, message, customParam);
+    
+    const end = new Date().toISOString();
+    
+    logger.info(
+      { outputLength: output.length },
+      "my_agent_completed"
+    );
+    
+    return {
+      output,
+      confidence: 0.95,
+      start,
+      end,
+    };
+  } catch (err) {
+    logger.error({ err }, "my_agent_failed");
+    throw err;
+  }
+}
+
+async function processData(
+  state: ConversationState,
+  message: Message,
+  param?: string
+): Promise<string> {
+  // Implementation
+  return "Result";
+}
+```
+
+### Step 2: Add LLM Integration (Optional)
+
+If your agent needs LLM capabilities, create a utils file:
+
+```typescript
+// src/agents/myagent/utils.ts
+import { LLM } from "../../llm/provider";
+import logger from "../../utils/logger";
+
+export interface LLMOptions {
+  maxTokens?: number;
+  thinking?: boolean;
+  thinkingBudget?: number;
+  messageId?: string;
+  usageType?: "chat" | "deep-research" | "paper-generation";
+}
+
+export async function callLLM(
+  prompt: string,
+  context: string,
+  options: LLMOptions = {}
+): Promise<string> {
+  const LLM_PROVIDER = process.env.MY_AGENT_LLM_PROVIDER || "google";
+  const apiKey = process.env[`${LLM_PROVIDER.toUpperCase()}_API_KEY`];
+
+  if (!apiKey) {
+    throw new Error(`${LLM_PROVIDER.toUpperCase()}_API_KEY is not configured.`);
+  }
+
+  const llmProvider = new LLM({
+    name: LLM_PROVIDER as any,
+    apiKey,
+  });
+
+  const response = await llmProvider.createChatCompletion({
+    model: process.env.MY_AGENT_LLM_MODEL || "gemini-2.5-pro",
+    messages: [
+      {
+        role: "user" as const,
+        content: `${context}\n\n${prompt}`,
+      },
+    ],
+    maxTokens: options.maxTokens || 2000,
+    thinkingBudget: options.thinkingBudget,
+    messageId: options.messageId,
+    usageType: options.usageType,
+  });
+
+  return response.content.trim();
+}
+```
+
+### Step 3: Add Prompts
+
+Create a prompts file for your agent:
+
+```typescript
+// src/agents/myagent/prompts.ts
+export const MY_AGENT_SYSTEM_PROMPT = `
+You are a specialized agent for [purpose].
+
+Your responsibilities:
+1. [Responsibility 1]
+2. [Responsibility 2]
+3. [Responsibility 3]
+
+Output format:
+- Be concise and specific
+- Provide evidence for claims
+- Format as JSON when structured output is needed
+`;
+
+export const MY_AGENT_USER_PROMPT = `
+Context:
+{context}
+
+Task:
+{task}
+
+Provide your analysis below:
+`;
+```
+
+### Step 4: Integrate into Routes
+
+Add your agent to the appropriate route handler:
+
+```typescript
+// src/routes/myroute.ts
+import { myAgent } from "../agents/myagent";
+
+export async function myRouteHandler({
+  request,
+  body,
+}: {
+  request: Request;
+  body: any;
+}) {
+  // Get conversation state
+  const conversationState = await getConversationState(body.conversationId);
+  
+  // Call your agent
+  const result = await myAgent({
+    conversationState,
+    message: body.message,
+    customParam: body.customParam,
+  });
+  
+  // Return result
+  return {
+    success: true,
+    output: result.output,
+    confidence: result.confidence,
+  };
+}
+```
+
+## Agent Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Structured Logging">
+    Always log important events with structured data:
+    
+    ```typescript
+    logger.info(
+      {
+        userId: message.user_id,
+        conversationId: conversationState.values.conversationId,
+        taskCount: tasks.length,
+      },
+      "agent_processing_started"
+    );
+    ```
+  </Accordion>
+
+  <Accordion title="Handle Errors Gracefully">
+    Always wrap agent logic in try-catch:
+    
+    ```typescript
+    try {
+      const result = await processTask();
+      return result;
+    } catch (err) {
+      logger.error({ err, context }, "agent_processing_failed");
+      // Return graceful fallback or throw
+      throw new Error(`Agent failed: ${err.message}`);
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Include Timing Information">
+    Track execution time for monitoring:
+    
+    ```typescript
+    const start = new Date().toISOString();
+    // ... processing ...
+    const end = new Date().toISOString();
+    
+    return { result, start, end };
+    ```
+  </Accordion>
+
+  <Accordion title="Keep Agents Focused">
+    Each agent should have a single, well-defined responsibility. Don't create "god agents" that do too much.
+  </Accordion>
+
+  <Accordion title="Document State Dependencies">
+    Clearly document which state fields your agent reads and what it returns:
+    
+    ```typescript
+    /**
+     * My Agent
+     * 
+     * Reads:
+     * - conversationState.values.objective
+     * - conversationState.values.keyInsights
+     * 
+     * Returns:
+     * - output: Processed result
+     * - confidence: Confidence score (0-1)
+     */
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Testing Your Agent
+
+### Unit Test Example
+
+```typescript
+// src/agents/myagent/index.test.ts
+import { describe, test, expect } from "bun:test";
+import { myAgent } from "./index";
+
+describe("myAgent", () => {
+  test("should process valid input", async () => {
+    const result = await myAgent({
+      conversationState: mockConversationState,
+      message: mockMessage,
+      customParam: "test",
+    });
+
+    expect(result.output).toBeDefined();
+    expect(result.confidence).toBeGreaterThan(0);
+    expect(result.start).toBeDefined();
+    expect(result.end).toBeDefined();
+  });
+
+  test("should handle empty state", async () => {
+    const result = await myAgent({
+      conversationState: emptyState,
+      message: mockMessage,
+    });
+
+    expect(result.output).toBeDefined();
+  });
+});
+```
+
+## Environment Configuration
+
+Add agent-specific environment variables:
+
+```bash
+# .env
+# My Agent Configuration
+MY_AGENT_LLM_PROVIDER=google      # or openai, anthropic
+MY_AGENT_LLM_MODEL=gemini-2.5-pro
+MY_AGENT_ENABLED=true
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Payment Protocols" icon="credit-card" href="/advanced/payment-protocols">
+    Add payment requirements to your custom agent endpoints
+  </Card>
+  <Card title="Rate Limiting" icon="gauge" href="/advanced/rate-limiting">
+    Configure rate limits for your agent endpoints
+  </Card>
+  <Card title="WebSockets" icon="signal-stream" href="/advanced/websockets">
+    Send real-time updates from your agent
+  </Card>
+  <Card title="API Routes" icon="route" href="/api/chat">
+    Learn about routing and middleware
+  </Card>
+</CardGroup>

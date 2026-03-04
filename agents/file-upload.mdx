@@ -1,0 +1,263 @@
+---
+title: "File Upload Agent"
+description: "Parse and store uploaded datasets with AI-generated descriptions"
+icon: "upload"
+---
+
+The File Upload Agent processes uploaded files by parsing them, generating AI descriptions, uploading to storage, and updating conversation state with dataset metadata.
+
+## Function Signature
+
+```typescript
+// src/agents/fileUpload/index.ts
+export async function fileUploadAgent(input: {
+  conversationState: ConversationState;
+  files: File[];
+  userId: string;
+}): Promise<{
+  uploadedDatasets: Array<{
+    id: string;
+    filename: string;
+    description: string;
+    path?: string;
+    size?: number;
+  }>;
+  errors: string[];
+}>;
+```
+
+## Supported File Types
+
+<CardGroup cols={2}>
+  <Card title="Spreadsheets" icon="table">
+    - CSV (`.csv`)
+    - Excel (`.xlsx`, `.xls`)
+  </Card>
+  <Card title="Documents" icon="file-alt">
+    - PDF (`.pdf`)
+    - Markdown (`.md`)
+    - Text (`.txt`)
+  </Card>
+  <Card title="Data" icon="code">
+    - JSON (`.json`)
+  </Card>
+  <Card title="Images" icon="image">
+    - PNG, JPG (OCR with Tesseract)
+  </Card>
+</CardGroup>
+
+## File Processing Pipeline
+
+<Steps>
+  <Step title="Parse file content">
+    Extract text from each file using format-specific parsers:
+    
+    ```typescript
+    // src/agents/fileUpload/parsers.ts
+    const parsed = await parseFile(buffer, filename, mimeType);
+    ```
+    
+    Returns `{ text, metadata }` with extracted content.
+  </Step>
+  
+  <Step title="Upload to storage">
+    Upload raw file to S3-compatible storage:
+    
+    ```typescript
+    const uploadedFiles = await uploadFilesToStorage(
+      userId,
+      conversationStateId,
+      rawFiles
+    );
+    ```
+    
+    Files stored at `uploads/{conversationStateId}/{filename}`.
+  </Step>
+  
+  <Step title="Generate AI descriptions">
+    Use LLM to generate dataset descriptions:
+    
+    ```typescript
+    const dataset = {
+      id: generateUUID(),
+      filename: file.name,
+      description: await generateDescription(parsedText),
+      path: uploadPath,
+      size: buffer.length
+    };
+    ```
+  </Step>
+  
+  <Step title="Update conversation state">
+    Add datasets to conversation state:
+    
+    ```typescript
+    conversationState.values.uploadedDatasets = [
+      ...existing,
+      ...newDatasets
+    ];
+    ```
+  </Step>
+</Steps>
+
+## File Size Limits
+
+```typescript
+// src/agents/fileUpload/config.ts
+export const MAX_FILE_SIZE_MB = 50;
+```
+
+Files exceeding 50MB are rejected with error message.
+
+## Usage Example
+
+```typescript
+// src/routes/chat.ts
+if (files.length > 0) {
+  const fileResult = await fileUploadAgent({
+    conversationState,
+    files,
+    userId: state.values.userId || "unknown"
+  });
+  
+  logger.info({
+    uploadedDatasets: fileResult.uploadedDatasets,
+    errors: fileResult.errors,
+    fileCount: files.length
+  }, "file_upload_agent_completed");
+}
+```
+
+## AI-Generated Descriptions
+
+The agent generates concise, informative descriptions:
+
+**Example CSV (gene_expression.csv):**
+```csv
+gene_id,sample1,sample2,sample3
+TP53,12.3,14.1,11.8
+MYC,8.2,9.1,7.9
+...
+```
+
+**Generated description:**
+```
+Gene expression matrix with 3 samples. Contains normalized expression values 
+for genes including TP53 and MYC. Suitable for differential expression analysis.
+```
+
+## Parser Implementations
+
+### CSV Parser
+
+```typescript
+// src/agents/fileUpload/parsers.ts
+import Papa from "papaparse";
+
+const result = Papa.parse(content, {
+  header: true,
+  skipEmptyLines: true
+});
+
+const rows = result.data.slice(0, 100); // First 100 rows
+const text = JSON.stringify(rows, null, 2);
+```
+
+### PDF Parser
+
+```typescript
+import pdfParse from "pdf-parse";
+
+const data = await pdfParse(buffer);
+const text = data.text;
+```
+
+### Excel Parser
+
+```typescript
+import XLSX from "xlsx";
+
+const workbook = XLSX.read(buffer, { type: "buffer" });
+const sheetName = workbook.SheetNames[0];
+const worksheet = workbook.Sheets[sheetName];
+const jsonData = XLSX.utils.sheet_to_json(worksheet);
+```
+
+### Image Parser (OCR)
+
+```typescript
+import Tesseract from "tesseract.js";
+
+const { data: { text } } = await Tesseract.recognize(buffer, "eng");
+```
+
+## Error Handling
+
+The agent returns errors without crashing:
+
+```typescript
+const result = await fileUploadAgent({
+  conversationState,
+  files: [largePDF, corruptedExcel, validCSV],
+  userId
+});
+
+// result.errors:
+// [
+//   "large.pdf: File too large (52.3 MB, max 50MB)",
+//   "corrupted.xlsx: Failed to parse Excel file"
+// ]
+// 
+// result.uploadedDatasets:
+// [
+//   { id: "...", filename: "valid.csv", description: "...", ... }
+// ]
+```
+
+## Storage Configuration
+
+Files are uploaded to S3-compatible storage:
+
+```bash
+# .env
+STORAGE_PROVIDER=s3
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+AWS_REGION=us-east-1
+S3_BUCKET=your-bucket
+```
+
+See [Storage Configuration](/configuration/storage) for details.
+
+## Integration with Analysis Agent
+
+Uploaded datasets flow to the Analysis Agent:
+
+```typescript
+// Planning agent includes datasets in ANALYSIS tasks
+const analysisTasks = plan.filter(t => t.type === "ANALYSIS");
+
+for (const task of analysisTasks) {
+  const result = await analysisAgent({
+    objective: task.objective,
+    datasets: task.datasets, // From uploaded files
+    type: "BIO",
+    userId,
+    conversationStateId
+  });
+}
+```
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="File Upload API" icon="upload" href="/api/files">
+    S3 presigned URL flow
+  </Card>
+  <Card title="Analysis Agent" icon="chart-line" href="/agents/analysis">
+    Process uploaded datasets
+  </Card>
+  <Card title="Storage Config" icon="database" href="/configuration/storage">
+    Configure S3 storage
+  </Card>
+</CardGroup>

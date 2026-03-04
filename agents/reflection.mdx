@@ -1,0 +1,235 @@
+---
+title: "Reflection Agent"
+description: "Extract insights and update research methodology"
+icon: "mirror"
+---
+
+The Reflection Agent analyzes completed MAX-level tasks and hypothesis to extract key insights, update the research objective, and refine methodology. It maintains the "world state" that guides future iterations.
+
+## Function Signature
+
+```typescript
+// src/agents/reflection/index.ts
+export async function reflectionAgent(input: {
+  conversationState: ConversationState;
+  message: Message;
+  completedMaxTasks: PlanTask[];
+  hypothesis?: string;
+}): Promise<ReflectionResult>;
+
+type ReflectionResult = {
+  conversationTitle?: string;
+  evolvingObjective?: string;
+  currentObjective?: string;
+  keyInsights: string[];
+  methodology?: string;
+  discoveries?: Discovery[];  // Deprecated - now handled by Discovery Agent
+  start: string;
+  end: string;
+};
+```
+
+## What It Does
+
+### Extracts Key Insights
+
+Identifies important findings from completed tasks:
+
+```typescript
+const result = await reflectionAgent({
+  conversationState,
+  message,
+  completedMaxTasks: [
+    {
+      type: "LITERATURE",
+      output: "(p53 regulates senescence via p21)[10.1038/nature...]..."
+    },
+    {
+      type: "ANALYSIS",
+      output: "p21 expression increased 3.2-fold (p < 0.001)..."
+    }
+  ],
+  hypothesis: "p53-p21 axis regulates cellular senescence"
+});
+
+// Returns:
+// {
+//   keyInsights: [
+//     "p53 directly activates p21 transcription in response to stress",
+//     "p21 expression shows 3.2-fold increase in senescent cells",
+//     "p53-p21 axis confirmed as primary senescence regulator"
+//   ]
+// }
+```
+
+### Updates Current Objective
+
+Refines the research focus based on findings:
+
+```typescript
+// Initial objective:
+"Investigate mechanisms of cellular senescence"
+
+// After reflection:
+"Investigate downstream targets of p53-p21 axis and their role in SASP activation"
+```
+
+### Refines Methodology
+
+Suggests methodological improvements:
+
+```typescript
+// {
+//   methodology: "Use RNA-seq to identify p21 downstream targets. Perform knockdown experiments to validate p53-p21 dependency. Measure SASP factor secretion."
+// }
+```
+
+## Usage Example
+
+```typescript
+// src/routes/deep-research/start.ts
+const reflectionResult = await reflectionAgent({
+  conversationState,
+  message,
+  completedMaxTasks,
+  hypothesis: hypothesisText
+});
+
+// Update conversation state
+conversationState.values.currentObjective = reflectionResult.currentObjective;
+conversationState.values.keyInsights = reflectionResult.keyInsights;
+conversationState.values.methodology = reflectionResult.methodology;
+
+if (reflectionResult.conversationTitle) {
+  await updateConversation(conversationId, {
+    title: reflectionResult.conversationTitle
+  });
+}
+
+await updateConversationState(
+  conversationState.id,
+  conversationState.values
+);
+```
+
+## World State Updates
+
+The Reflection Agent updates specific fields in ConversationState:
+
+<ParamField path="currentObjective" type="string">
+  Current research focus for next iteration
+</ParamField>
+
+<ParamField path="keyInsights" type="string[]">
+  Important findings accumulated across iterations
+</ParamField>
+
+<ParamField path="methodology" type="string">
+  Suggested experimental or analytical approaches
+</ParamField>
+
+<ParamField path="conversationTitle" type="string">
+  Auto-generated title summarizing the research (optional)
+</ParamField>
+
+See [State Management](/concepts/state-management) for complete schema.
+
+## Integration with Discovery Agent
+
+Previously, the Reflection Agent handled discovery extraction. This is now delegated to the [Discovery Agent](/agents/discovery):
+
+```typescript
+// Old: Reflection handled discoveries
+const reflectionResult = await reflectionAgent(...);
+conversationState.values.discoveries = reflectionResult.discoveries;
+
+// New: Separate discovery agent
+const reflectionResult = await reflectionAgent(...);
+const discoveryResult = await discoveryAgent({
+  conversationState,
+  message,
+  tasksToConsider: completedMaxTasks,
+  hypothesis
+});
+conversationState.values.discoveries = discoveryResult.discoveries;
+```
+
+## Reflection Prompts
+
+The agent uses structured prompts to extract insights:
+
+```typescript
+// src/agents/reflection/prompts.ts
+export const REFLECTION_PROMPT = `
+You are a scientific reflection agent...
+
+Your task:
+1. Review completed tasks and hypothesis
+2. Extract 3-5 key insights
+3. Update current objective for next iteration
+4. Suggest methodological improvements
+...
+`;
+```
+
+## Configuration
+
+<ParamField path="STRUCTURED_LLM_PROVIDER" type="string" default="openai">
+  LLM provider: `openai`, `anthropic`, `google`, or `openrouter`
+</ParamField>
+
+<ParamField path="STRUCTURED_LLM_MODEL" type="string" default="gpt-5">
+  Model name for reflection agent
+</ParamField>
+
+## Example Flow
+
+<Steps>
+  <Step title="Initial state">
+    ```json
+    {
+      "currentObjective": "Investigate cellular senescence",
+      "keyInsights": []
+    }
+    ```
+  </Step>
+  
+  <Step title="After first iteration">
+    ```json
+    {
+      "currentObjective": "Investigate p53-p21 axis in senescence",
+      "keyInsights": [
+        "p53 regulates senescence via p21 activation"
+      ]
+    }
+    ```
+  </Step>
+  
+  <Step title="After second iteration">
+    ```json
+    {
+      "currentObjective": "Investigate SASP factors downstream of p21",
+      "keyInsights": [
+        "p53 regulates senescence via p21 activation",
+        "p21 expression correlates with SASP marker IL-6",
+        "mTOR pathway involved in SASP regulation"
+      ],
+      "methodology": "Use RNA-seq and ELISA to measure SASP factors..."
+    }
+    ```
+  </Step>
+</Steps>
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Hypothesis Agent" icon="lightbulb" href="/agents/hypothesis">
+    Generates hypotheses from tasks
+  </Card>
+  <Card title="Discovery Agent" icon="microscope" href="/agents/discovery">
+    Extracts novel scientific claims
+  </Card>
+  <Card title="State Management" icon="database" href="/concepts/state-management">
+    Understand world state schema
+  </Card>
+</CardGroup>

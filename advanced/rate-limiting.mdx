@@ -1,0 +1,604 @@
+---
+title: 'Rate Limiting'
+description: 'Configure per-user rate limits using Redis sliding window algorithm'
+icon: 'gauge'
+---
+
+## Overview
+
+BioAgents implements per-user rate limiting using Redis sliding window algorithm. Rate limits prevent abuse and ensure fair resource allocation across users.
+
+<Info>
+Rate limiting is only active when `USE_JOB_QUEUE=true` (requires Redis). When disabled, all requests are allowed.
+</Info>
+
+## Configuration
+
+### Environment Variables
+
+Configure rate limits in your `.env` file:
+
+```bash
+# Job Queue (required for rate limiting)
+USE_JOB_QUEUE=true
+REDIS_URL=redis://localhost:6379
+
+# Rate Limits (optional, defaults shown)
+CHAT_RATE_LIMIT_PER_MINUTE=10
+DEEP_RESEARCH_RATE_LIMIT_PER_5MIN=3
+```
+
+### Default Limits
+
+If not specified, these defaults are used:
+
+```typescript
+// src/middleware/rateLimiter.ts
+const RATE_LIMITS: Record<string, RateLimitConfig> = {
+  chat: {
+    max: parseInt(process.env.CHAT_RATE_LIMIT_PER_MINUTE || "10"),
+    window: 60, // 1 minute
+  },
+  "deep-research": {
+    max: parseInt(process.env.DEEP_RESEARCH_RATE_LIMIT_PER_5MIN || "3"),
+    window: 300, // 5 minutes
+  },
+};
+```
+
+## How It Works
+
+### Sliding Window Algorithm
+
+BioAgents uses Redis sorted sets to implement a sliding window:
+
+1. Each request is stored with timestamp as score
+2. Old entries outside the window are removed
+3. Current request count is checked against limit
+4. If under limit, request is allowed and recorded
+5. If over limit, request is rejected with 429 status
+
+```typescript
+// Simplified algorithm
+const key = `ratelimit:${action}:${userId}`;
+const now = Math.floor(Date.now() / 1000);
+const windowStart = now - config.window;
+
+// Remove old entries
+await redis.zremrangebyscore(key, 0, windowStart);
+
+// Count current requests
+const currentCount = await redis.zcard(key);
+
+if (currentCount >= config.max) {
+  // Rate limit exceeded
+  return { allowed: false, remaining: 0 };
+}
+
+// Add current request
+await redis.zadd(key, now, `${now}-${Math.random()}`);
+return { allowed: true, remaining: config.max - currentCount - 1 };
+```
+
+### Advantages of Sliding Window
+
+- **Precise**: Tracks requests per second, not fixed time blocks
+- **Fair**: No burst allowance at window boundaries
+- **Efficient**: O(log N) Redis operations
+- **Scalable**: Works across multiple API servers
+
+## Using Rate Limit Middleware
+
+### Basic Usage
+
+Apply to Elysia routes:
+
+```typescript
+import { Elysia } from "elysia";
+import { authResolver } from "../middleware/authResolver";
+import { rateLimitMiddleware } from "../middleware/rateLimiter";
+
+const app = new Elysia()
+  .guard(
+    {
+      beforeHandle: [
+        authResolver({ required: true }),  // Must run first
+        rateLimitMiddleware("chat"),
+      ],
+    },
+    (app) => app.post("/api/chat", chatHandler)
+  );
+```
+
+<Warning>
+**Important**: `authResolver` must run before `rateLimitMiddleware` because rate limiting requires `request.auth.userId`.
+</Warning>
+
+### Deep Research Example
+
+```typescript
+const app = new Elysia()
+  .guard(
+    {
+      beforeHandle: [
+        authResolver({ required: true }),
+        rateLimitMiddleware("deep-research"),
+      ],
+    },
+    (app) => app.post("/api/deep-research/start", deepResearchHandler)
+  );
+```
+
+## Rate Limit Response
+
+### HTTP Headers
+
+All responses include rate limit headers:
+
+```
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 7
+X-RateLimit-Reset: 60
+```
+
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Requests remaining in current window
+- `X-RateLimit-Reset`: Seconds until window resets
+
+### 429 Response
+
+When rate limit is exceeded:
+
+```json
+HTTP/1.1 429 Too Many Requests
+X-RateLimit-Limit: 10
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 45
+
+{
+  "error": "Rate limit exceeded",
+  "message": "Too many requests. Try again in 45 seconds.",
+  "retryAfter": 45
+}
+```
+
+## Programmatic Rate Checking
+
+You can check rate limits without incrementing the counter:
+
+```typescript
+import { checkRateLimit } from "../middleware/rateLimiter";
+
+const result = await checkRateLimit(userId, "chat");
+
+if (result.allowed) {
+  console.log(`Remaining: ${result.remaining}`);
+} else {
+  console.log(`Rate limited. Reset in ${result.resetIn}s`);
+}
+```
+
+### RateLimitResult Interface
+
+```typescript
+interface RateLimitResult {
+  allowed: boolean;      // Whether request is allowed
+  remaining: number;     // Requests remaining
+  resetIn: number;       // Seconds until reset
+}
+```
+
+## Custom Rate Limits
+
+### Adding New Action Types
+
+Extend the rate limit configuration:
+
+```typescript
+// src/middleware/rateLimiter.ts
+const RATE_LIMITS: Record<string, RateLimitConfig> = {
+  chat: {
+    max: parseInt(process.env.CHAT_RATE_LIMIT_PER_MINUTE || "10"),
+    window: 60,
+  },
+  "deep-research": {
+    max: parseInt(process.env.DEEP_RESEARCH_RATE_LIMIT_PER_5MIN || "3"),
+    window: 300,
+  },
+  // Add custom action
+  "data-analysis": {
+    max: parseInt(process.env.DATA_ANALYSIS_RATE_LIMIT_PER_HOUR || "20"),
+    window: 3600, // 1 hour
+  },
+};
+```
+
+Update the type:
+
+```typescript
+export type RateLimitAction = "chat" | "deep-research" | "data-analysis";
+
+export function rateLimitMiddleware(action: RateLimitAction) {
+  // ...
+}
+```
+
+### Environment Variables
+
+Add to `.env`:
+
+```bash
+DATA_ANALYSIS_RATE_LIMIT_PER_HOUR=20
+```
+
+### Usage
+
+```typescript
+const app = new Elysia()
+  .guard(
+    {
+      beforeHandle: [
+        authResolver({ required: true }),
+        rateLimitMiddleware("data-analysis"),
+      ],
+    },
+    (app) => app.post("/api/analyze", analyzeHandler)
+  );
+```
+
+## Per-Route Rate Limits
+
+Apply different limits to different routes:
+
+```typescript
+const app = new Elysia()
+  // Stricter limit for expensive operations
+  .guard(
+    {
+      beforeHandle: [
+        authResolver({ required: true }),
+        rateLimitMiddleware("deep-research"),  // 3 per 5 min
+      ],
+    },
+    (app) => app.post("/api/deep-research/start", deepResearchHandler)
+  )
+  // More lenient for cheap operations
+  .guard(
+    {
+      beforeHandle: [
+        authResolver({ required: true }),
+        rateLimitMiddleware("chat"),  // 10 per min
+      ],
+    },
+    (app) => app.post("/api/chat", chatHandler)
+  );
+```
+
+## Bypassing Rate Limits
+
+### Conditional Bypass
+
+Skip rate limiting when job queue is disabled:
+
+```typescript
+// Rate limiter automatically bypasses when USE_JOB_QUEUE=false
+if (!isJobQueueEnabled()) {
+  return {
+    allowed: true,
+    remaining: 999,
+    resetIn: 0,
+  };
+}
+```
+
+### Admin/Whitelist Bypass
+
+Implement custom bypass logic:
+
+```typescript
+export function rateLimitMiddleware(action: RateLimitAction) {
+  return async ({ request, set }: { request: Request; set: any }) => {
+    const auth = (request as any).auth;
+    
+    // Skip rate limit for admin users
+    if (auth?.role === "admin") {
+      return;
+    }
+    
+    // Check whitelist
+    const whitelistedUsers = [
+      "user-uuid-1",
+      "user-uuid-2",
+    ];
+    
+    if (whitelistedUsers.includes(auth?.userId)) {
+      return;
+    }
+    
+    // Normal rate limit check
+    const result = await checkRateLimit(auth.userId, action);
+    
+    if (!result.allowed) {
+      set.status = 429;
+      return {
+        error: "Rate limit exceeded",
+        message: `Too many requests. Try again in ${result.resetIn} seconds.`,
+        retryAfter: result.resetIn,
+      };
+    }
+  };
+}
+```
+
+## Error Handling
+
+Rate limiter gracefully handles Redis failures:
+
+```typescript
+try {
+  // Redis operations
+  const results = await multi.exec();
+  // ...
+} catch (error) {
+  // On Redis error, allow request but log warning
+  logger.error({ error, userId, action }, "rate_limit_check_failed");
+  return {
+    allowed: true,
+    remaining: 999,
+    resetIn: 0,
+  };
+}
+```
+
+<Info>
+**Fail-Open Design**: If Redis is unavailable, requests are allowed to prevent service outages. Monitor Redis health to catch issues.
+</Info>
+
+## Monitoring
+
+### Structured Logging
+
+Rate limit events are logged:
+
+```typescript
+// Request allowed
+logger.info(
+  {
+    userId,
+    action,
+    currentCount: 5,
+    max: 10,
+    remaining: 5,
+  },
+  "rate_limit_checked"
+);
+
+// Rate limit exceeded
+logger.warn(
+  {
+    userId,
+    action,
+    currentCount: 10,
+    max: 10,
+    resetIn: 45,
+  },
+  "rate_limit_exceeded"
+);
+
+// Redis error
+logger.error(
+  { error, userId, action },
+  "rate_limit_check_failed"
+);
+```
+
+### Metrics Tracking
+
+Track rate limit metrics:
+
+```typescript
+import { checkRateLimit } from "../middleware/rateLimiter";
+
+// Check all users' rate limits
+async function getRateLimitMetrics(userIds: string[]) {
+  const metrics = await Promise.all(
+    userIds.map(async (userId) => {
+      const chatLimit = await checkRateLimit(userId, "chat");
+      const researchLimit = await checkRateLimit(userId, "deep-research");
+      
+      return {
+        userId,
+        chat: {
+          remaining: chatLimit.remaining,
+          allowed: chatLimit.allowed,
+        },
+        research: {
+          remaining: researchLimit.remaining,
+          allowed: researchLimit.allowed,
+        },
+      };
+    })
+  );
+  
+  return metrics;
+}
+```
+
+## Client-Side Handling
+
+### Respecting Rate Limits
+
+```typescript
+interface RateLimitInfo {
+  limit: number;
+  remaining: number;
+  resetIn: number;
+}
+
+let rateLimitInfo: RateLimitInfo | null = null;
+
+async function makeRequest(url: string, body: any) {
+  // Check if rate limited
+  if (rateLimitInfo && rateLimitInfo.remaining === 0) {
+    throw new Error(
+      `Rate limited. Try again in ${rateLimitInfo.resetIn} seconds.`
+    );
+  }
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  
+  // Update rate limit info from headers
+  rateLimitInfo = {
+    limit: parseInt(response.headers.get('X-RateLimit-Limit') || '0'),
+    remaining: parseInt(response.headers.get('X-RateLimit-Remaining') || '0'),
+    resetIn: parseInt(response.headers.get('X-RateLimit-Reset') || '0'),
+  };
+  
+  // Handle 429
+  if (response.status === 429) {
+    const error = await response.json();
+    throw new Error(error.message);
+  }
+  
+  return response.json();
+}
+```
+
+### Exponential Backoff
+
+```typescript
+async function makeRequestWithRetry(
+  url: string,
+  body: any,
+  maxRetries = 3
+) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await makeRequest(url, body);
+    } catch (error) {
+      if (error.message.includes('Rate limited') && i < maxRetries - 1) {
+        // Exponential backoff
+        const delay = Math.min(1000 * Math.pow(2, i), 30000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Set Appropriate Limits">
+    Choose limits based on:
+    - Resource cost (LLM tokens, API calls)
+    - Expected user behavior
+    - Server capacity
+    
+    Example:
+    - Cheap operations: 60 per minute
+    - Medium operations: 10 per minute
+    - Expensive operations: 3 per 5 minutes
+  </Accordion>
+
+  <Accordion title="Always Include Headers">
+    Return rate limit headers on ALL responses, not just 429s. Clients need this info to avoid hitting limits.
+  </Accordion>
+
+  <Accordion title="Use Tiered Limits">
+    Consider different limits for different user tiers:
+    
+    ```typescript
+    const limits = {
+      free: { max: 10, window: 60 },
+      pro: { max: 100, window: 60 },
+      enterprise: { max: 1000, window: 60 },
+    };
+    
+    const config = limits[user.tier] || limits.free;
+    ```
+  </Accordion>
+
+  <Accordion title="Monitor Redis Health">
+    Rate limiting depends on Redis. Set up monitoring:
+    - Redis connection status
+    - Redis memory usage
+    - Rate limit check failures
+  </Accordion>
+
+  <Accordion title="Document Limits">
+    Clearly document rate limits in your API documentation so clients know what to expect.
+  </Accordion>
+</AccordionGroup>
+
+## Testing Rate Limits
+
+### Manual Testing
+
+```bash
+# Make rapid requests
+for i in {1..15}; do
+  curl -X POST http://localhost:3000/api/chat \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer <token>" \
+    -d '{"message": "Hello"}' \
+    -i | grep -E "X-RateLimit|429"
+  sleep 1
+done
+```
+
+### Unit Tests
+
+```typescript
+import { describe, test, expect } from "bun:test";
+import { checkRateLimit } from "./rateLimiter";
+
+describe("Rate Limiter", () => {
+  test("should allow requests under limit", async () => {
+    const userId = "test-user-1";
+    
+    for (let i = 0; i < 10; i++) {
+      const result = await checkRateLimit(userId, "chat");
+      expect(result.allowed).toBe(true);
+      expect(result.remaining).toBe(9 - i);
+    }
+  });
+  
+  test("should block requests over limit", async () => {
+    const userId = "test-user-2";
+    
+    // Use up the limit
+    for (let i = 0; i < 10; i++) {
+      await checkRateLimit(userId, "chat");
+    }
+    
+    // Next request should be blocked
+    const result = await checkRateLimit(userId, "chat");
+    expect(result.allowed).toBe(false);
+    expect(result.remaining).toBe(0);
+  });
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Payment Protocols" icon="credit-card" href="/advanced/payment-protocols">
+    Combine rate limiting with payment gating
+  </Card>
+  <Card title="WebSockets" icon="signal-stream" href="/advanced/websockets">
+    Rate limit WebSocket connections and messages
+  </Card>
+  <Card title="Authentication" icon="shield" href="/concepts/authentication">
+    Learn about auth requirements for rate limiting
+  </Card>
+  <Card title="Job Queue" icon="server" href="/concepts/job-queue">
+    Understand Redis and BullMQ setup
+  </Card>
+</CardGroup>

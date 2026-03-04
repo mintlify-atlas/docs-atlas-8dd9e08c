@@ -1,0 +1,603 @@
+---
+title: 'Agent System'
+description: 'Deep dive into BioAgents specialized agents'
+icon: 'robot'
+---
+
+## What are Agents?
+
+**Agents** are the core concept in BioAgents. Each agent is a self-contained, independent function that performs a specific task in the research workflow. Agents are designed to be modular and reusable across different routes and contexts.
+
+## Agent Design Philosophy
+
+<AccordionGroup>
+  <Accordion title="Single Responsibility">
+    Each agent focuses on one specific task. For example, the Literature Agent only searches literature - it doesn't analyze data or generate hypotheses.
+  </Accordion>
+  
+  <Accordion title="Composability">
+    Agents can be combined in different sequences to achieve different workflows. Chat mode uses a subset of agents, while Deep Research uses all agents.
+  </Accordion>
+  
+  <Accordion title="Isolation">
+    Agents receive state as input and return results. They don't directly mutate global state (except through designated state update mechanisms).
+  </Accordion>
+  
+  <Accordion title="Testability">
+    Pure functions make agents easy to test in isolation with mock inputs.
+  </Accordion>
+</AccordionGroup>
+
+## Complete Agent Reference
+
+### File Upload Agent
+
+**Location**: `src/agents/fileUpload/`
+
+**Purpose**: Handles file parsing, storage, and automatic description generation
+
+**Supported Formats**:
+- PDF
+- Excel (XLSX, XLS)
+- CSV
+- Markdown (MD)
+- JSON
+- TXT
+
+**Key Features**:
+- Generates AI-powered descriptions for each dataset
+- Stores files in cloud storage with metadata
+- Extracts text content from PDFs
+- Parses structured data from spreadsheets
+
+**Usage**:
+```typescript
+import { fileUploadAgent } from "../../agents/fileUpload";
+
+const fileResult = await fileUploadAgent({
+  conversationState,
+  files: files, // File[] from request
+  userId: state.values.userId
+});
+
+// Result:
+// {
+//   uploadedDatasets: [
+//     {
+//       filename: "data.csv",
+//       id: "uuid",
+//       description: "AI-generated description",
+//       path: "uploads/data.csv",
+//       content: "parsed preview",
+//       size: 1024
+//     }
+//   ],
+//   errors: []
+// }
+```
+
+**State Updates**: Adds to `conversationState.values.uploadedDatasets[]`
+
+---
+
+### Planning Agent
+
+**Location**: `src/agents/planning/index.ts:71`
+
+**Purpose**: Creates research plans based on user questions and current state
+
+**Modes**:
+- **initial**: Creates tasks for the current iteration (used at start)
+- **next**: Plans next iteration after reflection (used after hypothesis generation)
+
+**Input**:
+```typescript
+type PlanningInput = {
+  state: State;
+  conversationState: ConversationState;
+  message: Message;
+  mode?: "initial" | "next";
+  usageType?: "chat" | "deep-research" | "paper-generation";
+  researchMode?: "semi-autonomous" | "fully-autonomous" | "steering";
+};
+```
+
+**Output**:
+```typescript
+type PlanningResult = {
+  currentObjective: string;
+  plan: Array<PlanTask>;
+};
+
+type PlanTask = {
+  id?: string; // Format: "ana-1" or "lit-1"
+  objective: string;
+  datasets: Array<{
+    filename: string;
+    id: string;
+    description: string;
+    path?: string;
+  }>;
+  type: "LITERATURE" | "ANALYSIS";
+  level?: number; // Iteration level
+};
+```
+
+**Example**:
+```typescript
+const planningResult = await planningAgent({
+  state,
+  conversationState,
+  message: createdMessage,
+  mode: "initial",
+  usageType: "deep-research",
+  researchMode: "semi-autonomous"
+});
+
+// planningResult.plan = [
+//   {
+//     type: "LITERATURE",
+//     objective: "Search for caloric restriction longevity mechanisms",
+//     datasets: []
+//   },
+//   {
+//     type: "ANALYSIS",
+//     objective: "Analyze gene expression data for autophagy markers",
+//     datasets: [{ filename: "data.csv", id: "uuid", ... }]
+//   }
+// ]
+```
+
+**State Updates**: Returns plan (caller updates `conversationState.values.plan`)
+
+---
+
+### Literature Agent
+
+**Location**: `src/agents/literature/`
+
+**Purpose**: Searches and synthesizes scientific literature
+
+**Supported Types**:
+- **OPENSCHOLAR**: General scientific literature with citations
+- **EDISON**: Edison AI literature search (deep research only)
+- **BIO** / **BIOLIT** / **BIOLITDEEP**: BioAgents Literature API
+- **KNOWLEDGE**: Custom knowledge base
+
+**Input**:
+```typescript
+type LiteratureInput = {
+  objective: string;
+  type: "OPENSCHOLAR" | "EDISON" | "BIO" | "BIOLIT" | "BIOLITDEEP" | "KNOWLEDGE";
+  onPollUpdate?: (update: { reasoning?: string[] }) => void;
+};
+```
+
+**Output**:
+```typescript
+type LiteratureResult = {
+  output: string; // Synthesized text with inline citations
+  count?: number; // Number of papers found
+  jobId?: string; // External job ID (Edison/BIO)
+};
+```
+
+**Citation Format**: `(claim)[DOI or URL]`
+
+**Example**:
+```typescript
+const result = await literatureAgent({
+  objective: "What are the mechanisms of caloric restriction on longevity?",
+  type: "BIO",
+  onPollUpdate: ({ reasoning }) => {
+    console.log("Reasoning:", reasoning);
+  }
+});
+
+// result.output = "Caloric restriction extends lifespan through multiple mechanisms...
+// (mTOR inhibition is sufficient to extend lifespan)[10.1126/science.1215135]
+// (Autophagy is required for CR-mediated longevity)[10.1126/science.aar2814]..."
+```
+
+**Real-time Updates**: The `onPollUpdate` callback receives reasoning traces during execution
+
+---
+
+### Analysis Agent
+
+**Location**: `src/agents/analysis/`
+
+**Purpose**: Performs data analysis on uploaded datasets
+
+**Supported Types**:
+- **EDISON**: Deep analysis via Edison AI
+- **BIO**: BioAgents Data Analysis Agent (state-of-the-art)
+
+**Input**:
+```typescript
+type AnalysisInput = {
+  objective: string;
+  datasets: Array<{
+    filename: string;
+    id: string;
+    path: string;
+  }>;
+  type: "EDISON" | "BIO";
+  userId: string;
+  conversationStateId: string;
+  onPollUpdate?: (update: { reasoning?: string[] }) => void;
+};
+```
+
+**Output**:
+```typescript
+type AnalysisResult = {
+  output: string; // Analysis results with inline citations
+  jobId?: string; // External job ID
+  artifacts?: Array<{
+    id: string;
+    name: string;
+    description: string;
+    type: "FILE" | "FOLDER";
+    path?: string;
+    content?: string;
+  }>;
+};
+```
+
+**Example**:
+```typescript
+const result = await analysisAgent({
+  objective: "Perform differential gene expression analysis comparing CR vs control",
+  datasets: [
+    { filename: "gene_counts.csv", id: "uuid-1", path: "uploads/gene_counts.csv" }
+  ],
+  type: "BIO",
+  userId: userId,
+  conversationStateId: conversationStateId,
+  onPollUpdate: ({ reasoning }) => {
+    task.reasoning = reasoning; // Update in real-time
+  }
+});
+
+// result.artifacts = [
+//   {
+//     id: "plot-1",
+//     name: "volcano_plot.png",
+//     description: "Volcano plot of differential expression",
+//     type: "FILE",
+//     path: "artifacts/plot-1.png"
+//   }
+// ]
+```
+
+**Artifact Handling**: Analysis artifacts (plots, tables) are stored and linked to tasks for traceability
+
+---
+
+### Hypothesis Agent
+
+**Location**: `src/agents/hypothesis/`
+
+**Purpose**: Generates research hypotheses from completed tasks
+
+**Input**:
+```typescript
+type HypothesisInput = {
+  objective: string;
+  message: Message;
+  conversationState: ConversationState;
+  completedTasks: PlanTask[];
+};
+```
+
+**Output**:
+```typescript
+type HypothesisResult = {
+  hypothesis: string; // Synthesized hypothesis with citations
+  mode: "create" | "update" | "refine";
+};
+```
+
+**Modes**:
+- **create**: First hypothesis for conversation
+- **update**: Major revision based on new findings
+- **refine**: Minor refinement of existing hypothesis
+
+**Example**:
+```typescript
+const hypothesisResult = await hypothesisAgent({
+  objective: "Investigate caloric restriction mechanisms",
+  message: createdMessage,
+  conversationState,
+  completedTasks: [
+    { type: "LITERATURE", output: "...", ... },
+    { type: "ANALYSIS", output: "...", ... }
+  ]
+});
+
+// hypothesisResult = {
+//   mode: "create",
+//   hypothesis: "Caloric restriction extends lifespan through coordinated activation of autophagy...
+//   (Atg7 upregulation promotes longevity)[10.1038/nature24630]..."
+// }
+```
+
+**State Updates**: Updates `conversationState.values.currentHypothesis`
+
+---
+
+### Reflection Agent
+
+**Location**: `src/agents/reflection/`
+
+**Purpose**: Extracts insights and evolves research objectives
+
+**Input**:
+```typescript
+type ReflectionInput = {
+  conversationState: ConversationState;
+  message: Message;
+  completedMaxTasks: PlanTask[]; // Tasks from current level
+  hypothesis: string;
+};
+```
+
+**Output**:
+```typescript
+type ReflectionResult = {
+  conversationTitle: string;
+  evolvingObjective?: string;
+  currentObjective: string;
+  keyInsights: string[];
+  methodology: string;
+  discoveries: Discovery[];
+};
+```
+
+**Example**:
+```typescript
+const reflectionResult = await reflectionAgent({
+  conversationState,
+  message: createdMessage,
+  completedMaxTasks: tasksToExecute,
+  hypothesis: hypothesisText
+});
+
+// reflectionResult = {
+//   conversationTitle: "Caloric Restriction Longevity Mechanisms",
+//   currentObjective: "Validate autophagy pathway activation in CR",
+//   keyInsights: [
+//     "mTOR suppression is central to CR benefits",
+//     "Autophagy genes show coordinated upregulation"
+//   ],
+//   methodology: "Differential expression analysis with literature synthesis"
+// }
+```
+
+**State Updates**:
+- `conversationTitle`
+- `evolvingObjective`
+- `currentObjective`
+- `keyInsights[]`
+- `methodology`
+
+---
+
+### Discovery Agent
+
+**Location**: `src/agents/discovery/`
+
+**Purpose**: Identifies novel claims with evidence links
+
+**Input**:
+```typescript
+type DiscoveryInput = {
+  conversationState: ConversationState;
+  message: Message;
+  tasksToConsider: PlanTask[];
+  hypothesis: string;
+};
+```
+
+**Output**:
+```typescript
+type Discovery = {
+  title: string;
+  claim: string;
+  summary: string;
+  evidenceArray: Array<{
+    taskId: string; // References PlanTask.id
+    jobId?: string; // External job ID
+    explanation: string;
+  }>;
+  artifacts: AnalysisArtifact[];
+  novelty: string;
+};
+
+type DiscoveryResult = {
+  discoveries: Discovery[];
+};
+```
+
+**Example**:
+```typescript
+const discoveryResult = await discoveryAgent({
+  conversationState,
+  message: createdMessage,
+  tasksToConsider: allCompletedTasks,
+  hypothesis: hypothesisText
+});
+
+// discoveryResult.discoveries = [
+//   {
+//     title: "Coordinated Autophagy Activation in CR",
+//     claim: "Caloric restriction induces coordinated upregulation of autophagy genes",
+//     summary: "Analysis reveals Atg7, Ulk1, and Becn1 show synchronized upregulation...",
+//     evidenceArray: [
+//       {
+//         taskId: "ana-1",
+//         jobId: "job-xyz",
+//         explanation: "Differential expression analysis shows 1.52-fold Atg7 upregulation"
+//       },
+//       {
+//         taskId: "lit-1",
+//         explanation: "Literature confirms autophagy role in longevity"
+//       }
+//     ],
+//     artifacts: [{ id: "plot-1", name: "volcano_plot.png", ... }],
+//     novelty: "First demonstration of coordinated autophagy activation in this model"
+//   }
+// ]
+```
+
+**Traceability**: Each discovery links to specific tasks and external job IDs
+
+**State Updates**: Updates `conversationState.values.discoveries[]`
+
+---
+
+### Reply Agent
+
+**Location**: `src/agents/reply/`
+
+**Purpose**: Generates user-facing responses
+
+**Modes**:
+- **Deep Research Mode**: Includes objective, next steps, feedback request
+- **Chat Mode**: Concise answer without next steps
+
+**Input**:
+```typescript
+type ReplyContext = {
+  completedTasks: PlanTask[];
+  hypothesis?: string;
+  nextPlan: PlanTask[];
+  keyInsights: string[];
+  discoveries: Discovery[];
+  methodology?: string;
+  currentObjective?: string;
+  uploadedDatasets: UploadedDataset[];
+};
+```
+
+**Chat Mode**:
+```typescript
+import { generateChatReply } from "../agents/reply/utils";
+
+const replyText = await generateChatReply(
+  userMessage,
+  replyContext,
+  {
+    maxTokens: 1024,
+    messageId: message.id,
+    usageType: "chat"
+  }
+);
+
+// Returns: "Based on the literature, caloric restriction extends lifespan...
+// (mTOR inhibition is sufficient)[10.1126/science.1215135]..."
+```
+
+**Deep Research Mode**:
+```typescript
+import { generateDeepResearchReply } from "../agents/reply/utils";
+
+const replyText = await generateDeepResearchReply(
+  userMessage,
+  replyContext,
+  {
+    maxTokens: 2048,
+    messageId: message.id,
+    usageType: "deep-research"
+  }
+);
+
+// Returns: Formatted response with:
+// - Current objective
+// - Findings from this iteration
+// - Key insights
+// - Next steps
+// - Feedback request
+```
+
+**Citation Preservation**: All inline citations from tasks are preserved in final response
+
+---
+
+## Agent Execution Patterns
+
+### Sequential Execution
+
+```typescript
+// Literature tasks execute sequentially
+for (const task of literatureTasks) {
+  const result = await literatureAgent({ objective: task.objective });
+  task.output = result.output;
+}
+```
+
+### Parallel Execution
+
+```typescript
+// Multiple literature sources run in parallel
+const literaturePromises = [
+  literatureAgent({ objective: task.objective, type: "OPENSCHOLAR" }),
+  literatureAgent({ objective: task.objective, type: "BIO" }),
+  literatureAgent({ objective: task.objective, type: "KNOWLEDGE" })
+];
+
+await Promise.all(literaturePromises);
+```
+
+### Real-time Updates
+
+```typescript
+// Stream reasoning traces during execution
+const onPollUpdate = async ({ reasoning }) => {
+  task.reasoning = reasoning;
+  await updateConversationState(conversationState.id, conversationState.values);
+  await notifyStateUpdated(jobId, conversationId, conversationState.id);
+};
+
+const result = await analysisAgent({
+  objective: task.objective,
+  datasets: task.datasets,
+  type: "BIO",
+  onPollUpdate
+});
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Type Safety" icon="shield-check">
+    Leverage TypeScript types from `src/types/core.ts` for all agent inputs and outputs
+  </Card>
+  <Card title="Handle Errors Gracefully" icon="circle-exclamation">
+    External services may fail - always handle errors and provide fallback behavior
+  </Card>
+  <Card title="Log Extensively" icon="file-lines">
+    Use structured logging to track agent execution and debug issues
+  </Card>
+  <Card title="Preserve Citations" icon="quote-left">
+    Maintain inline citation format `(claim)[DOI]` throughout agent pipeline
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Multi-agent architecture overview
+  </Card>
+  <Card title="Deep Research" icon="flask" href="/concepts/deep-research">
+    Deep research workflow details
+  </Card>
+  <Card title="State Management" icon="database" href="/concepts/state-management">
+    Understanding state types
+  </Card>
+  <Card title="Custom Agents" icon="code" href="/advanced/custom-agents">
+    Build your own agents
+  </Card>
+</CardGroup>

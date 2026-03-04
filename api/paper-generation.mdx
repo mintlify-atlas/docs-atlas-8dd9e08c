@@ -1,0 +1,433 @@
+---
+title: 'Paper Generation API'
+description: 'Generate LaTeX research papers from Deep Research conversations'
+---
+
+## Overview
+
+The Paper Generation API converts Deep Research conversations into formatted LaTeX papers with automatic citation management, figure inclusion, and PDF compilation.
+
+## Authentication
+
+All endpoints require authentication via:
+- JWT token in `Authorization` header
+- API key in `X-API-Key` header
+- x402/b402 payment proof
+
+## Generation Modes
+
+### Synchronous Generation
+
+Blocking operation that returns the paper when complete. Suitable for:
+- Development and testing
+- Small conversations
+- When immediate results are required
+
+### Asynchronous Generation (Queue Mode)
+
+Non-blocking job queue operation. Suitable for:
+- Production deployments
+- Large conversations with many artifacts
+- Concurrent paper generation
+- When horizontal scaling is needed
+
+Requires `USE_JOB_QUEUE=true` in server configuration.
+
+---
+
+## Endpoints
+
+### Generate Paper (Sync)
+
+<ParamField path="POST /api/deep-research/conversations/:conversationId/paper" type="endpoint">
+  Generate a paper synchronously (blocking)
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="conversationId" type="string" required>
+  Conversation ID to generate paper from
+</ParamField>
+
+**Response**
+
+```json
+{
+  "success": true,
+  "paperId": "uuid",
+  "conversationId": "uuid",
+  "conversationStateId": "uuid",
+  "pdfPath": "user/.../papers/.../paper.pdf",
+  "pdfUrl": "https://s3.amazonaws.com/...",
+  "rawLatexUrl": "https://s3.amazonaws.com/.../main.tex"
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/deep-research/conversations/CONVERSATION_ID/paper \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+### Generate Paper (Async)
+
+<ParamField path="POST /api/deep-research/conversations/:conversationId/paper/async" type="endpoint">
+  Queue paper generation job (non-blocking)
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="conversationId" type="string" required>
+  Conversation ID to generate paper from
+</ParamField>
+
+**Response (202 Accepted)**
+
+```json
+{
+  "success": true,
+  "paperId": "uuid",
+  "jobId": "uuid",
+  "conversationId": "uuid",
+  "status": "queued",
+  "statusUrl": "/api/deep-research/paper/PAPER_ID/status"
+}
+```
+
+**Error Response (429 Too Many Requests)**
+
+```json
+{
+  "error": "Concurrent paper limit exceeded",
+  "message": "You already have a paper generation job in progress. Please wait for it to complete."
+}
+```
+
+or
+
+```json
+{
+  "error": "System busy",
+  "message": "The system is currently processing 3 paper generation jobs. Maximum allowed is 3. Please try again later."
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/deep-research/conversations/CONVERSATION_ID/paper/async \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+### Check Paper Status
+
+<ParamField path="GET /api/deep-research/paper/:paperId/status" type="endpoint">
+  Check paper generation job status
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="paperId" type="string" required>
+  Paper ID returned from async generation
+</ParamField>
+
+**Response (Pending)**
+
+```json
+{
+  "paperId": "uuid",
+  "conversationId": "uuid",
+  "status": "pending",
+  "createdAt": "2024-01-01T12:00:00Z"
+}
+```
+
+**Response (Processing)**
+
+```json
+{
+  "paperId": "uuid",
+  "conversationId": "uuid",
+  "status": "processing",
+  "progress": 45,
+  "createdAt": "2024-01-01T12:00:00Z"
+}
+```
+
+**Response (Completed)**
+
+```json
+{
+  "paperId": "uuid",
+  "conversationId": "uuid",
+  "status": "completed",
+  "pdfUrl": "https://s3.amazonaws.com/...",
+  "rawLatexUrl": "https://s3.amazonaws.com/.../main.tex",
+  "createdAt": "2024-01-01T12:00:00Z"
+}
+```
+
+**Response (Failed)**
+
+```json
+{
+  "paperId": "uuid",
+  "conversationId": "uuid",
+  "status": "failed",
+  "error": "LaTeX compilation failed: Undefined control sequence",
+  "createdAt": "2024-01-01T12:00:00Z"
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/deep-research/paper/PAPER_ID/status \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+### Get Paper
+
+<ParamField path="GET /api/deep-research/paper/:paperId" type="endpoint">
+  Get fresh presigned URLs for an existing paper
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="paperId" type="string" required>
+  Paper ID to retrieve
+</ParamField>
+
+**Response**
+
+```json
+{
+  "success": true,
+  "paperId": "uuid",
+  "conversationId": "uuid",
+  "pdfPath": "user/.../papers/.../paper.pdf",
+  "pdfUrl": "https://s3.amazonaws.com/...",
+  "rawLatexUrl": "https://s3.amazonaws.com/.../main.tex",
+  "createdAt": "2024-01-01T12:00:00Z"
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/deep-research/paper/PAPER_ID \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+### List Papers
+
+<ParamField path="GET /api/deep-research/conversations/:conversationId/papers" type="endpoint">
+  List all papers for a conversation
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="conversationId" type="string" required>
+  Conversation ID to list papers for
+</ParamField>
+
+**Response**
+
+```json
+{
+  "success": true,
+  "conversationId": "uuid",
+  "papers": [
+    {
+      "paperId": "uuid",
+      "pdfPath": "user/.../papers/.../paper.pdf",
+      "status": "completed",
+      "createdAt": "2024-01-01T12:00:00Z"
+    },
+    {
+      "paperId": "uuid",
+      "pdfPath": "user/.../papers/.../paper.pdf",
+      "status": "completed",
+      "createdAt": "2024-01-01T11:00:00Z"
+    }
+  ]
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/deep-research/conversations/CONVERSATION_ID/papers \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+## Complete Workflow
+
+### Synchronous (Simple)
+
+```bash
+# Generate paper (wait for completion)
+RESPONSE=$(curl -X POST \
+  https://api.bioagents.ai/api/deep-research/conversations/$CONVERSATION_ID/paper \
+  -H "Authorization: Bearer $JWT_TOKEN")
+
+# Extract PDF URL
+PDF_URL=$(echo $RESPONSE | jq -r '.pdfUrl')
+
+# Download paper
+curl -o paper.pdf "$PDF_URL"
+```
+
+### Asynchronous (Production)
+
+```bash
+# Start paper generation
+RESPONSE=$(curl -X POST \
+  https://api.bioagents.ai/api/deep-research/conversations/$CONVERSATION_ID/paper/async \
+  -H "Authorization: Bearer $JWT_TOKEN")
+
+# Extract paper ID
+PAPER_ID=$(echo $RESPONSE | jq -r '.paperId')
+
+# Poll for completion
+while true; do
+  STATUS=$(curl -s https://api.bioagents.ai/api/deep-research/paper/$PAPER_ID/status \
+    -H "Authorization: Bearer $JWT_TOKEN")
+  
+  STATE=$(echo $STATUS | jq -r '.status')
+  
+  if [ "$STATE" = "completed" ]; then
+    echo "Paper generation complete!"
+    PDF_URL=$(echo $STATUS | jq -r '.pdfUrl')
+    curl -o paper.pdf "$PDF_URL"
+    break
+  elif [ "$STATE" = "failed" ]; then
+    echo "Paper generation failed:"
+    echo $STATUS | jq -r '.error'
+    break
+  else
+    echo "Status: $STATE (polling...)"
+    sleep 5
+  fi
+done
+```
+
+---
+
+## Paper Content
+
+Generated papers include:
+
+### Structure
+- **Title**: Derived from conversation objective
+- **Abstract**: Summary of research findings
+- **Introduction**: Research context and motivation
+- **Methods**: Methodology and data sources
+- **Results**: Key discoveries with evidence
+- **Discussion**: Analysis and interpretation
+- **Conclusion**: Summary and future directions
+- **References**: All cited papers with DOIs
+
+### Citations
+- Automatic bibliography from literature tasks
+- DOI-linked references
+- Inline citations in IEEE format
+
+### Figures
+- Embedded analysis artifacts
+- Auto-generated captions
+- High-resolution output
+
+---
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Authentication required",
+  "message": "Valid authentication is required to generate papers"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Access denied",
+  "message": "You do not have permission to generate a paper for this conversation"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "Resource not found",
+  "message": "Conversation with id xxx not found"
+}
+```
+
+### 429 Too Many Requests
+
+```json
+{
+  "error": "Concurrent paper limit exceeded",
+  "message": "You already have a paper generation job in progress. Please wait for it to complete."
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": "LaTeX compilation failed",
+  "message": "compilation failed with exit code 1",
+  "hint": "The paper content could not be compiled to PDF. Check the LaTeX syntax and citations."
+}
+```
+
+### 503 Service Unavailable
+
+```json
+{
+  "error": "Async paper generation unavailable",
+  "message": "Job queue is not enabled. Use the sync endpoint instead.",
+  "syncEndpoint": "/api/deep-research/conversations/xxx/paper"
+}
+```
+
+---
+
+## Rate Limits
+
+- **Per-user concurrent limit**: 1 active job per user
+- **Global concurrent limit**: Configurable via `MAX_CONCURRENT_PAPER_JOBS` (default: 3)
+- **Timeout**: 10 minutes per generation
+
+## Configuration
+
+Environment variables:
+
+```bash
+# Enable async paper generation
+USE_JOB_QUEUE=true
+
+# Set global concurrent limit
+MAX_CONCURRENT_PAPER_JOBS=3
+
+# Redis for job queue
+REDIS_URL=redis://localhost:6379
+```

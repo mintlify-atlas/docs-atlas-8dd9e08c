@@ -1,0 +1,262 @@
+---
+title: 'Artifacts API'
+description: 'Download research artifacts with presigned URLs'
+---
+
+## Overview
+
+The Artifacts API provides secure access to research outputs (figures, datasets, analysis results) generated during Deep Research conversations. All artifacts are downloaded via presigned URLs with automatic ownership validation.
+
+## Authentication
+
+All endpoints require authentication via one of:
+- JWT token in `Authorization` header
+- API key in `X-API-Key` header
+- x402/b402 payment proof
+
+## Security
+
+- **Ownership validation**: Users can only access their own artifacts
+- **Path traversal protection**: Blocks `../`, `./`, and `\` in paths
+- **Time-limited URLs**: Presigned URLs expire after 1 hour
+- **Unguessable paths**: Artifacts are stored in UUID-based directories
+
+## Endpoints
+
+### Download Artifact
+
+<ParamField path="GET /api/artifacts/download" type="endpoint">
+  Generate a presigned download URL for an artifact
+</ParamField>
+
+**Query Parameters**
+
+<ParamField query="userId" type="string" required>
+  User ID who owns the artifact (must match authenticated user)
+</ParamField>
+
+<ParamField query="conversationStateId" type="string" required>
+  Conversation state ID containing the artifact
+</ParamField>
+
+<ParamField query="path" type="string" required>
+  Relative path to the artifact (e.g., `figures/plot.png`)
+</ParamField>
+
+**Response**
+
+```json
+{
+  "url": "https://s3.amazonaws.com/bucket/path/to/artifact.png?X-Amz-Signature=..."
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X GET "https://api.bioagents.ai/api/artifacts/download?userId=USER_ID&conversationStateId=STATE_ID&path=figures/plot.png" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+## Common Artifact Paths
+
+Artifacts are organized by type within each conversation:
+
+### Analysis Outputs
+- `figures/*.png` - Generated plots and visualizations
+- `figures/*.jpg` - Image outputs
+- `results/*.csv` - Processed datasets
+- `results/*.json` - Structured analysis results
+
+### Paper Generation
+- `papers/*/paper.pdf` - Generated research papers
+- `papers/*/main.tex` - LaTeX source files
+- `papers/*/figures/*` - Paper figures
+
+### Raw Data
+- `uploads/*.csv` - User-uploaded datasets
+- `uploads/*.pdf` - User-uploaded documents
+
+---
+
+## Usage Example
+
+```bash
+# Get artifact URL
+RESPONSE=$(curl -s -X GET \
+  "https://api.bioagents.ai/api/artifacts/download?userId=$USER_ID&conversationStateId=$STATE_ID&path=figures/correlation_plot.png" \
+  -H "Authorization: Bearer $JWT_TOKEN")
+
+# Extract presigned URL
+ARTIFACT_URL=$(echo $RESPONSE | jq -r '.url')
+
+# Download the artifact
+curl -o correlation_plot.png "$ARTIFACT_URL"
+```
+
+---
+
+## Error Responses
+
+### 400 Bad Request - Missing Parameters
+
+```json
+{
+  "error": "Missing required parameters: userId, conversationStateId, path"
+}
+```
+
+### 400 Bad Request - Path Traversal Attempt
+
+```json
+{
+  "error": "Invalid path",
+  "message": "Path cannot contain directory traversal sequences"
+}
+```
+
+### 403 Forbidden - Ownership Violation
+
+```json
+{
+  "error": "Forbidden",
+  "message": "You can only access your own artifacts"
+}
+```
+
+This occurs when the `userId` parameter doesn't match the authenticated user ID.
+
+### 404 Not Found
+
+```json
+{
+  "error": "Artifact not found"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": "Failed to generate download URL"
+}
+```
+
+### 503 Service Unavailable
+
+```json
+{
+  "error": "Storage provider not configured"
+}
+```
+
+---
+
+## Best Practices
+
+### 1. Cache Artifact Metadata
+
+Artifact paths are returned in Deep Research responses. Cache them to avoid unnecessary lookups:
+
+```json
+{
+  "messageId": "uuid",
+  "result": {
+    "text": "Analysis complete",
+    "files": [
+      {
+        "filename": "plot.png",
+        "path": "figures/plot.png",
+        "mimeType": "image/png"
+      }
+    ]
+  }
+}
+```
+
+### 2. Handle Expiration
+
+Presigned URLs expire after 1 hour. Request new URLs if downloads fail:
+
+```javascript
+async function downloadArtifact(userId, stateId, path) {
+  const response = await fetch(
+    `/api/artifacts/download?userId=${userId}&conversationStateId=${stateId}&path=${path}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  
+  const { url } = await response.json();
+  return url; // Use immediately or within 1 hour
+}
+```
+
+### 3. Validate Paths Client-Side
+
+Prevent path traversal attempts before making requests:
+
+```javascript
+function isValidArtifactPath(path) {
+  return !path.includes('..') && 
+         !path.includes('./') && 
+         !path.includes('\\');
+}
+```
+
+---
+
+## Integration with Deep Research
+
+Artifacts are generated during Deep Research cycles:
+
+1. **Start research**: `POST /api/deep-research/start`
+2. **Poll status**: `GET /api/deep-research/status/:messageId`
+3. **Extract artifact paths** from the response `files` array
+4. **Download artifacts**: Use this API to get presigned URLs
+
+```bash
+# Example: Download all artifacts from a research session
+STATUS=$(curl -s https://api.bioagents.ai/api/deep-research/status/$MESSAGE_ID \
+  -H "Authorization: Bearer $JWT_TOKEN")
+
+# Extract artifact paths
+echo $STATUS | jq -r '.result.files[].path' | while read path; do
+  # Get download URL
+  URL=$(curl -s "https://api.bioagents.ai/api/artifacts/download?userId=$USER_ID&conversationStateId=$STATE_ID&path=$path" \
+    -H "Authorization: Bearer $JWT_TOKEN" | jq -r '.url')
+  
+  # Download artifact
+  FILENAME=$(basename "$path")
+  curl -s -o "$FILENAME" "$URL"
+  echo "Downloaded: $FILENAME"
+done
+```
+
+---
+
+## Storage Structure
+
+Artifacts are stored in S3 with the following hierarchy:
+
+```
+user/{userId}/
+  conversation/{conversationId}/
+    state/{stateId}/
+      figures/
+        plot1.png
+        plot2.jpg
+      results/
+        analysis.csv
+        summary.json
+      papers/
+        {paperId}/
+          paper.pdf
+          main.tex
+```
+
+The `path` parameter is relative to the state directory:
+- ✅ `figures/plot1.png`
+- ✅ `results/analysis.csv`
+- ❌ `../other-state/results/data.csv` (blocked)
+- ❌ `../../other-user/files.csv` (blocked)

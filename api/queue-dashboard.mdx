@@ -1,0 +1,325 @@
+---
+title: 'Queue Dashboard'
+description: 'Monitor and manage BullMQ job queues'
+---
+
+## Overview
+
+The Queue Dashboard provides a web UI for monitoring and managing BullMQ job queues. Built with Bull Board, it offers real-time insights into job processing.
+
+<Warning>
+  Queue Dashboard is only available when `USE_JOB_QUEUE=true` is enabled in server configuration.
+</Warning>
+
+## Access
+
+**URL**: `https://api.bioagents.ai/admin/queues`
+
+**Authentication**: HTTP Basic Auth
+- Username: Set via `ADMIN_USERNAME` (default: `admin`)
+- Password: Set via `ADMIN_PASSWORD` (required in production)
+
+## Features
+
+### Queue Monitoring
+
+- **Real-time status**: View active, waiting, completed, and failed jobs
+- **Job counts**: See queue depths and processing rates
+- **Performance metrics**: Monitor job processing times
+- **Queue health**: Check for stalled or stuck jobs
+
+### Monitored Queues
+
+1. **chat** - Standard chat requests
+2. **deep-research** - Deep research jobs
+3. **paper-generation** - LaTeX paper generation
+4. **file-process** - File upload processing (if enabled)
+
+### Job Management
+
+- **Inspect jobs**: View job data, results, and error logs
+- **Retry failed jobs**: Manually retry jobs that failed
+- **Clean queues**: Remove old completed/failed jobs
+- **Pause/Resume**: Control queue processing
+
+---
+
+## Setup
+
+### Enable Job Queue
+
+In your `.env` file:
+
+```bash
+# Enable job queue system
+USE_JOB_QUEUE=true
+
+# Redis connection
+REDIS_URL=redis://localhost:6379
+
+# Admin credentials
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-secure-password
+```
+
+### Production Requirements
+
+<Warning>
+  In production (`NODE_ENV=production`), the dashboard is **disabled** unless `ADMIN_PASSWORD` is set.
+</Warning>
+
+```bash
+# Production environment
+NODE_ENV=production
+ADMIN_PASSWORD=strong-password-here
+```
+
+---
+
+## Using the Dashboard
+
+### Access the Dashboard
+
+1. Navigate to `https://api.bioagents.ai/admin/queues`
+2. Enter admin credentials when prompted
+3. Select a queue from the dropdown
+
+### View Job Details
+
+1. Click on any job in the list
+2. View job data, progress, and results
+3. Check error logs for failed jobs
+4. View processing timeline
+
+### Retry Failed Jobs
+
+1. Navigate to "Failed" tab
+2. Select a failed job
+3. Click "Retry" button
+4. Job moves to "Waiting" queue
+
+### Clean Old Jobs
+
+1. Navigate to queue settings
+2. Select job states to clean (completed/failed)
+3. Set retention period
+4. Click "Clean" button
+
+---
+
+## Queue States
+
+### Job States
+
+| State | Description |
+|-------|-------------|
+| **waiting** | Job queued, awaiting processing |
+| **active** | Job currently being processed |
+| **completed** | Job finished successfully |
+| **failed** | Job failed with error |
+| **delayed** | Job scheduled for future processing |
+| **paused** | Queue is paused |
+
+### State Transitions
+
+```
+waiting → active → completed
+            ↓
+          failed
+```
+
+---
+
+## Monitoring Examples
+
+### Check Queue Health
+
+**Healthy Queue**:
+- Active: 2-3 jobs
+- Waiting: < 10 jobs
+- Failed: 0 jobs
+- Completed: Growing steadily
+
+**Unhealthy Queue**:
+- Active: 0 jobs (worker down)
+- Waiting: 100+ jobs (backlog)
+- Failed: Many jobs (errors)
+- Completed: Not growing (stalled)
+
+### Monitor Deep Research
+
+Deep research jobs are long-running (30s - 5min). Expected behavior:
+
+1. Job appears in "Waiting"
+2. Moves to "Active" when worker picks it up
+3. Progress updates every 5-10 seconds
+4. Moves to "Completed" with final result
+
+### Monitor Paper Generation
+
+Paper generation jobs take 1-3 minutes. Check:
+
+1. **Job data**: conversationId, userId, paperId
+2. **Progress**: 0% → 100%
+3. **Result**: PDF URL and LaTeX URL
+4. **Errors**: LaTeX compilation failures
+
+---
+
+## Security
+
+### Authentication
+
+Basic Auth is enforced in production:
+
+```bash
+curl -u admin:password https://api.bioagents.ai/admin/queues
+```
+
+### Access Control
+
+- Dashboard access is **admin-only**
+- No user data filtering (admins see all jobs)
+- Job data may contain sensitive information
+- Use strong passwords in production
+
+### Disable in Production
+
+If you don't want to expose the dashboard in production:
+
+```bash
+# Don't set ADMIN_PASSWORD
+# Dashboard will be disabled automatically
+unset ADMIN_PASSWORD
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Enable job queue (required)
+USE_JOB_QUEUE=true
+
+# Redis connection (required)
+REDIS_URL=redis://localhost:6379
+
+# Admin auth (required in production)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=secure-password
+
+# Environment
+NODE_ENV=production
+```
+
+### Queue Options
+
+Queues are configured in `src/services/queue/queues.ts`:
+
+```typescript
+const queue = new Queue('deep-research', {
+  connection: redis,
+  defaultJobOptions: {
+    attempts: 3,           // Retry failed jobs 3 times
+    backoff: {             // Exponential backoff
+      type: 'exponential',
+      delay: 2000,
+    },
+    removeOnComplete: {    // Auto-cleanup
+      age: 3600,          // Remove after 1 hour
+      count: 1000,        // Keep last 1000
+    },
+  },
+});
+```
+
+---
+
+## Troubleshooting
+
+### Dashboard Not Loading
+
+**Symptom**: Cannot access `/admin/queues`
+
+**Causes**:
+1. Job queue not enabled (`USE_JOB_QUEUE=false`)
+2. Redis not connected
+3. Missing admin password in production
+
+**Solution**:
+```bash
+# Check logs
+bun run dev
+
+# Should see:
+# "queue_dashboard_initialized" {"path":"/admin/queues"}
+
+# If missing, check:
+USE_JOB_QUEUE=true
+REDIS_URL=redis://localhost:6379
+ADMIN_PASSWORD=your-password
+```
+
+### Jobs Stuck in Active
+
+**Symptom**: Jobs stay in "active" state indefinitely
+
+**Causes**:
+1. Worker crashed during processing
+2. Long-running job (deep research can take 5 min)
+3. Worker not running
+
+**Solution**:
+```bash
+# Check if worker is running
+ps aux | grep worker
+
+# Restart worker
+bun run worker
+
+# Check logs for errors
+tail -f logs/worker.log
+```
+
+### Failed Jobs Accumulating
+
+**Symptom**: Many jobs in "failed" state
+
+**Causes**:
+1. External service down (OpenScholar, Edison)
+2. Configuration error (missing API keys)
+3. Invalid job data
+
+**Solution**:
+1. Check failed job error messages in dashboard
+2. Fix underlying issue (API keys, service availability)
+3. Retry failed jobs
+4. Clean old failed jobs after fixing
+
+### High Queue Depth
+
+**Symptom**: 100+ jobs in "waiting" state
+
+**Causes**:
+1. Worker processing too slowly
+2. Traffic spike
+3. Not enough workers
+
+**Solution**:
+```bash
+# Scale workers horizontally
+docker compose up -d --scale worker=5
+
+# Or start multiple worker processes
+bun run worker &
+bun run worker &
+bun run worker &
+```
+
+---
+
+## API Alternative
+
+For programmatic access, use the [Job Management API](/api/job-management) instead of the web dashboard.

@@ -1,0 +1,322 @@
+---
+title: "Chat API"
+description: "Interactive AI-powered chat with literature search and hypothesis generation"
+api: "POST /api/chat"
+---
+
+## Overview
+
+The Chat API provides conversational AI capabilities with integrated literature search, hypothesis generation, and data analysis. It supports both synchronous and asynchronous execution modes.
+
+## Authentication
+
+All chat endpoints require authentication via JWT token or API key.
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for JWT authentication
+</ParamField>
+
+<ParamField header="X-API-Key" type="string">
+  Alternative API key authentication
+</ParamField>
+
+## Execution Modes
+
+The API operates in two modes based on the `USE_JOB_QUEUE` environment variable:
+
+- **In-Process Mode** (`USE_JOB_QUEUE=false`): Executes synchronously and returns results directly
+- **Queue Mode** (`USE_JOB_QUEUE=true`): Enqueues job to BullMQ and returns job ID for polling
+
+---
+
+## POST /api/chat
+
+Send a message to the AI agent for processing.
+
+### Request Body
+
+<ParamField body="message" type="string" required>
+  The user's question or message to process
+</ParamField>
+
+<ParamField body="conversationId" type="string">
+  Optional conversation ID for multi-turn conversations. Auto-generated if not provided.
+</ParamField>
+
+<ParamField body="files" type="File[]">
+  Optional array of files to upload and analyze (supports CSV, PDF, images)
+</ParamField>
+
+### Response (In-Process Mode)
+
+Returns `200 OK` with the AI's response.
+
+<ResponseField name="text" type="string">
+  The AI-generated response text
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User ID for tracking (included for x402 payment users)
+</ResponseField>
+
+### Response (Queue Mode)
+
+Returns `202 Accepted` with job information.
+
+<ResponseField name="jobId" type="string">
+  BullMQ job ID for status polling
+</ResponseField>
+
+<ResponseField name="messageId" type="string">
+  Database message ID for tracking
+</ResponseField>
+
+<ResponseField name="conversationId" type="string">
+  Conversation ID for multi-turn context
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User ID for ownership verification
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Job status: `queued`
+</ResponseField>
+
+<ResponseField name="pollUrl" type="string">
+  URL to check job status
+</ResponseField>
+
+### Example: Basic Chat
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/chat \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What are the key pathways involved in autophagy?"
+  }'
+```
+
+### Example Response (In-Process)
+
+```json
+{
+  "text": "Autophagy involves several key pathways:\n\n1. **mTOR Pathway**: The master regulator that inhibits autophagy when nutrients are abundant...\n\n2. **ULK1 Complex**: Initiates autophagosome formation...",
+  "userId": "usr_abc123"
+}
+```
+
+### Example: Multi-Turn Conversation
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/chat \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What about the role of AMPK in this process?",
+    "conversationId": "conv_xyz789"
+  }'
+```
+
+### Example: Chat with File Upload
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/chat \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "message=Analyze this gene expression dataset" \
+  -F "files=@expression_data.csv"
+```
+
+---
+
+## GET /api/chat/status/:jobId
+
+Check the status of a queued chat job (only available when `USE_JOB_QUEUE=true`).
+
+### Path Parameters
+
+<ParamField path="jobId" type="string" required>
+  The job ID returned from POST /api/chat
+</ParamField>
+
+### Response Fields
+
+<ResponseField name="status" type="string">
+  Job status: `queued`, `active`, `completed`, `failed`, or `not_found`
+</ResponseField>
+
+<ResponseField name="result" type="object">
+  Chat result (only present when status is `completed`)
+  
+  <Expandable title="result properties">
+    <ResponseField name="text" type="string">
+      The AI-generated response
+    </ResponseField>
+    
+    <ResponseField name="userId" type="string">
+      User ID for tracking
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="progress" type="object">
+  Progress information (present during active execution)
+  
+  <Expandable title="progress properties">
+    <ResponseField name="stage" type="string">
+      Current execution stage
+    </ResponseField>
+    
+    <ResponseField name="percent" type="number">
+      Completion percentage (0-100)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error message (only present when status is `failed`)
+</ResponseField>
+
+<ResponseField name="attemptsMade" type="number">
+  Number of retry attempts made
+</ResponseField>
+
+### Example: Check Job Status
+
+```bash
+curl https://api.bioagents.xyz/api/chat/status/msg_abc123
+```
+
+### Example Response: Completed
+
+```json
+{
+  "status": "completed",
+  "result": {
+    "text": "Based on the literature search, autophagy is regulated by...",
+    "userId": "usr_abc123"
+  }
+}
+```
+
+### Example Response: Processing
+
+```json
+{
+  "status": "active",
+  "progress": {
+    "stage": "literature_search",
+    "percent": 45
+  },
+  "attemptsMade": 0
+}
+```
+
+---
+
+## POST /api/chat/retry/:jobId
+
+Manually retry a failed chat job.
+
+### Authentication Required
+
+Must be the owner of the job being retried.
+
+### Path Parameters
+
+<ParamField path="jobId" type="string" required>
+  The job ID to retry
+</ParamField>
+
+### Response Fields
+
+<ResponseField name="ok" type="boolean">
+  Whether retry was successful
+</ResponseField>
+
+<ResponseField name="jobId" type="string">
+  The job ID being retried
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  New status: `retrying`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message
+</ResponseField>
+
+<ResponseField name="previousAttempts" type="number">
+  Number of previous retry attempts
+</ResponseField>
+
+### Example: Retry Failed Job
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/chat/retry/msg_abc123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### Example Response
+
+```json
+{
+  "ok": true,
+  "jobId": "msg_abc123",
+  "status": "retrying",
+  "message": "Job has been queued for retry",
+  "previousAttempts": 1
+}
+```
+
+---
+
+## Error Codes
+
+<ResponseField name="400" type="Bad Request">
+  Missing required field (message) or invalid request format
+</ResponseField>
+
+<ResponseField name="401" type="Unauthorized">
+  Missing or invalid authentication credentials
+</ResponseField>
+
+<ResponseField name="403" type="Forbidden">
+  Attempting to access another user's job
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  Job not found or queue mode not enabled
+</ResponseField>
+
+<ResponseField name="429" type="Rate Limited">
+  Too many requests - rate limit exceeded
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  Server error during processing
+</ResponseField>
+
+## Features
+
+The Chat API automatically:
+
+- **Literature Search**: Queries OpenScholar, BioLit, and knowledge bases
+- **Hypothesis Generation**: Creates testable hypotheses when appropriate
+- **File Processing**: Extracts data from CSV, PDF, and image files
+- **Context Retention**: Maintains conversation history across messages
+- **Token Usage Tracking**: Monitors LLM token consumption per message
+
+## Rate Limits
+
+Rate limits are configurable per authentication method:
+
+- **JWT Users**: Default 60 requests/minute
+- **API Key Users**: Custom limits based on tier
+- **Anonymous Users**: 10 requests/minute (if enabled)
+
+## Related Endpoints
+
+- [Deep Research API](/api/deep-research) - Multi-iteration autonomous research
+- [Status API](/api/status) - Check deep research job progress

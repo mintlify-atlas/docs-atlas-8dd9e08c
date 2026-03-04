@@ -1,0 +1,557 @@
+---
+title: Storage Configuration
+description: Configure S3-compatible storage for file uploads and artifacts
+---
+
+BioAgents supports S3-compatible storage for file uploads, research artifacts, and generated papers. Storage is optional but recommended for production deployments.
+
+## Overview
+
+When storage is configured, BioAgents uses presigned URLs for direct client-to-S3 uploads, eliminating the need to proxy files through your server.
+
+<Info>
+  If storage is not configured, file upload features will be disabled.
+</Info>
+
+## Supported Providers
+
+<CardGroup cols={2}>
+  <Card title="Amazon S3" icon="aws">
+    AWS S3 buckets
+  </Card>
+  <Card title="DigitalOcean Spaces" icon="digital-ocean">
+    S3-compatible object storage
+  </Card>
+  <Card title="MinIO" icon="server">
+    Self-hosted S3-compatible storage
+  </Card>
+  <Card title="Cloudflare R2" icon="cloudflare">
+    S3-compatible with zero egress fees
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+<Steps>
+  <Step title="Choose Provider">
+    Set the storage provider to `s3`:
+    
+    ```bash
+    STORAGE_PROVIDER=s3
+    ```
+  </Step>
+  
+  <Step title="Configure Credentials">
+    Set your S3 credentials:
+    
+    ```bash
+    AWS_ACCESS_KEY_ID=your_access_key_id_here
+    AWS_SECRET_ACCESS_KEY=your_secret_access_key_here
+    AWS_REGION=us-east-1
+    S3_BUCKET=your-bucket-name-here
+    ```
+  </Step>
+  
+  <Step title="Optional: Custom Endpoint">
+    For S3-compatible services (DigitalOcean Spaces, MinIO, Cloudflare R2):
+    
+    ```bash
+    S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+    ```
+  </Step>
+</Steps>
+
+## Environment Variables
+
+<ParamField path="STORAGE_PROVIDER" type="string">
+  Storage provider to use.
+  
+  **Options:**
+  - `s3` - Use S3-compatible storage
+  - Empty or not set - Storage disabled
+</ParamField>
+
+### AWS Credentials
+
+<ParamField path="AWS_ACCESS_KEY_ID" type="string" required>
+  S3 access key ID.
+  
+  Alternative: `S3_ACCESS_KEY_ID`
+</ParamField>
+
+<ParamField path="AWS_SECRET_ACCESS_KEY" type="string" required>
+  S3 secret access key.
+  
+  Alternative: `S3_SECRET_ACCESS_KEY`
+</ParamField>
+
+<ParamField path="AWS_REGION" type="string" default="us-east-1">
+  S3 region.
+  
+  Alternative: `S3_REGION`
+</ParamField>
+
+<ParamField path="S3_BUCKET" type="string" required>
+  S3 bucket name.
+</ParamField>
+
+<ParamField path="S3_ENDPOINT" type="string">
+  Custom S3 endpoint for S3-compatible services.
+  
+  Examples:
+  - DigitalOcean Spaces: `https://nyc3.digitaloceanspaces.com`
+  - MinIO: `http://localhost:9000`
+  - Cloudflare R2: `https://your-account.r2.cloudflarestorage.com`
+</ParamField>
+
+<Info>
+  You can use either `AWS_*` or `S3_*` variants for credentials. Both are equivalent.
+</Info>
+
+## Provider Setup Guides
+
+<AccordionGroup>
+  <Accordion title="Amazon S3">
+    <Steps>
+      <Step title="Create S3 Bucket">
+        1. Open [AWS S3 Console](https://console.aws.amazon.com/s3/)
+        2. Click "Create bucket"
+        3. Enter bucket name and select region
+        4. Configure CORS (see below)
+      </Step>
+      
+      <Step title="Create IAM User">
+        1. Open [IAM Console](https://console.aws.amazon.com/iam/)
+        2. Create new user with programmatic access
+        3. Attach policy with S3 permissions (see below)
+        4. Save access key ID and secret access key
+      </Step>
+      
+      <Step title="Configure Environment">
+        ```bash
+        STORAGE_PROVIDER=s3
+        AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+        AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+        AWS_REGION=us-east-1
+        S3_BUCKET=my-bioagents-bucket
+        ```
+      </Step>
+    </Steps>
+  </Accordion>
+  
+  <Accordion title="DigitalOcean Spaces">
+    <Steps>
+      <Step title="Create Space">
+        1. Open [DigitalOcean Spaces](https://cloud.digitalocean.com/spaces)
+        2. Click "Create Space"
+        3. Select region and name
+        4. Configure CORS (see below)
+      </Step>
+      
+      <Step title="Generate API Keys">
+        1. Go to API > Spaces Keys
+        2. Click "Generate New Key"
+        3. Save access key and secret key
+      </Step>
+      
+      <Step title="Configure Environment">
+        ```bash
+        STORAGE_PROVIDER=s3
+        AWS_ACCESS_KEY_ID=your_access_key
+        AWS_SECRET_ACCESS_KEY=your_secret_key
+        AWS_REGION=nyc3
+        S3_BUCKET=my-bioagents-space
+        S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+        ```
+      </Step>
+    </Steps>
+  </Accordion>
+  
+  <Accordion title="MinIO (Self-Hosted)">
+    <Steps>
+      <Step title="Install MinIO">
+        ```bash
+        docker run -d \
+          -p 9000:9000 \
+          -p 9001:9001 \
+          --name minio \
+          -e "MINIO_ROOT_USER=minioadmin" \
+          -e "MINIO_ROOT_PASSWORD=minioadmin" \
+          minio/minio server /data --console-address ":9001"
+        ```
+      </Step>
+      
+      <Step title="Create Bucket">
+        1. Open MinIO Console at http://localhost:9001
+        2. Login with `minioadmin` / `minioadmin`
+        3. Create new bucket
+        4. Configure CORS in bucket settings
+      </Step>
+      
+      <Step title="Configure Environment">
+        ```bash
+        STORAGE_PROVIDER=s3
+        AWS_ACCESS_KEY_ID=minioadmin
+        AWS_SECRET_ACCESS_KEY=minioadmin
+        AWS_REGION=us-east-1
+        S3_BUCKET=bioagents
+        S3_ENDPOINT=http://localhost:9000
+        ```
+      </Step>
+    </Steps>
+  </Accordion>
+  
+  <Accordion title="Cloudflare R2">
+    <Steps>
+      <Step title="Create R2 Bucket">
+        1. Open [Cloudflare Dashboard](https://dash.cloudflare.com/)
+        2. Go to R2 Object Storage
+        3. Create new bucket
+        4. Configure CORS (see below)
+      </Step>
+      
+      <Step title="Generate API Token">
+        1. Go to R2 > Manage R2 API Tokens
+        2. Create API token with R2 permissions
+        3. Save access key ID and secret access key
+      </Step>
+      
+      <Step title="Configure Environment">
+        ```bash
+        STORAGE_PROVIDER=s3
+        AWS_ACCESS_KEY_ID=your_r2_access_key_id
+        AWS_SECRET_ACCESS_KEY=your_r2_secret_access_key
+        AWS_REGION=auto
+        S3_BUCKET=my-bioagents-bucket
+        S3_ENDPOINT=https://your-account-id.r2.cloudflarestorage.com
+        ```
+      </Step>
+    </Steps>
+  </Accordion>
+</AccordionGroup>
+
+## CORS Configuration
+
+For direct client-to-S3 uploads, you must configure CORS on your S3 bucket.
+
+<CodeGroup>
+
+```json AWS S3 CORS
+[
+  {
+    "AllowedHeaders": ["*"],
+    "AllowedMethods": ["GET", "PUT", "POST", "DELETE"],
+    "AllowedOrigins": [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "https://your-production-domain.com"
+    ],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3000
+  }
+]
+```
+
+```xml DigitalOcean Spaces CORS
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>http://localhost:3000</AllowedOrigin>
+    <AllowedOrigin>http://localhost:5173</AllowedOrigin>
+    <AllowedOrigin>https://your-production-domain.com</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>PUT</AllowedMethod>
+    <AllowedMethod>POST</AllowedMethod>
+    <AllowedMethod>DELETE</AllowedMethod>
+    <AllowedHeader>*</AllowedHeader>
+    <ExposeHeader>ETag</ExposeHeader>
+    <MaxAgeSeconds>3000</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+```
+
+</CodeGroup>
+
+<Warning>
+  Replace `http://localhost:*` with your actual frontend URLs in production.
+</Warning>
+
+## IAM Policy (AWS S3)
+
+Minimum required permissions for S3:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:HeadObject"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket-name/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    }
+  ]
+}
+```
+
+## File Organization
+
+BioAgents organizes files in S3 with the following structure:
+
+```
+user/{userId}/
+  conversation/{conversationId}/
+    uploads/
+      {filename}  # User-uploaded files
+    artifacts/
+      {artifactId}/  # Research artifacts (plots, tables)
+    papers/
+      {paperId}.pdf  # Generated papers
+      {paperId}.tex  # LaTeX source
+```
+
+## Implementation Details
+
+### Storage Provider Interface
+
+The `StorageProvider` abstract class defines the storage interface:
+
+```typescript src/storage/types.ts
+export abstract class StorageProvider {
+  abstract upload(path: string, buffer: Buffer, mimeType: string): Promise<string>;
+  abstract download(path: string): Promise<Buffer>;
+  abstract downloadRange(path: string, start: number, end: number): Promise<Buffer>;
+  abstract delete(path: string): Promise<void>;
+  abstract exists(path: string): Promise<boolean>;
+  abstract getPresignedUrl(path: string, expiresIn?: number, filename?: string): Promise<string>;
+  abstract getPresignedUploadUrl(path: string, contentType: string, expiresIn?: number, contentLength?: number): Promise<string>;
+}
+```
+
+### S3 Provider Implementation
+
+The S3 provider uses AWS SDK v3:
+
+```typescript src/storage/providers/s3.ts
+export class S3StorageProvider extends StorageProvider {
+  private client: S3Client;
+  private bucket: string;
+
+  constructor(config: {
+    accessKeyId: string;
+    secretAccessKey: string;
+    region: string;
+    bucket: string;
+    endpoint?: string;
+  }) {
+    super();
+    this.bucket = config.bucket;
+
+    // For S3-compatible services, disable checksum features
+    const isS3Compatible = !!config.endpoint;
+
+    this.client = new S3Client({
+      region: config.region,
+      credentials: {
+        accessKeyId: config.accessKeyId,
+        secretAccessKey: config.secretAccessKey,
+      },
+      ...(config.endpoint && { endpoint: config.endpoint }),
+      // Disable SDK checksum features for S3-compatible services
+      ...(isS3Compatible && {
+        requestChecksumCalculation: "WHEN_REQUIRED",
+        responseChecksumValidation: "WHEN_REQUIRED",
+      }),
+    });
+  }
+}
+```
+
+### Presigned URL Generation
+
+For secure direct uploads:
+
+```typescript src/storage/providers/s3.ts
+async getPresignedUploadUrl(
+  path: string,
+  contentType: string,
+  expiresIn: number = 3600,
+  contentLength?: number,
+): Promise<string> {
+  const command = new PutObjectCommand({
+    Bucket: this.bucket,
+    Key: path,
+    ContentType: contentType,
+    // ContentLength prevents abuse: user cannot upload 5GB using a URL signed for 50MB
+    ...(contentLength && { ContentLength: contentLength }),
+  });
+
+  const url = await getSignedUrl(this.client, command, { expiresIn });
+  return url;
+}
+```
+
+### Storage Configuration Loading
+
+```typescript src/storage/config.ts
+export const STORAGE_CONFIG = {
+  provider: process.env.STORAGE_PROVIDER?.toLowerCase(),
+  s3: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY,
+    region: process.env.AWS_REGION || process.env.S3_REGION || "us-east-1",
+    bucket: process.env.S3_BUCKET,
+    endpoint: process.env.S3_ENDPOINT,
+  },
+};
+```
+
+## Upload Flow
+
+BioAgents uses presigned URLs for efficient file uploads:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant S3
+    
+    Client->>API: POST /api/files/upload (filename, size, contentType)
+    API->>API: Generate presigned upload URL
+    API->>Client: Return presigned URL + fileId
+    Client->>S3: PUT file directly to presigned URL
+    S3->>Client: Upload complete
+    Client->>API: POST /api/files/confirm (fileId)
+    API->>API: Mark file as uploaded in database
+```
+
+## File Size Limits
+
+Presigned URLs enforce file size limits to prevent abuse:
+
+```typescript
+const presignedUrl = await storage.getPresignedUploadUrl(
+  path,
+  contentType,
+  3600,  // 1 hour expiration
+  fileSize  // S3 will reject uploads that don't match this size
+);
+```
+
+<Warning>
+  S3 enforces the `ContentLength` parameter. Uploads with different sizes will be rejected.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="CORS Errors">
+    **Symptom**: `No 'Access-Control-Allow-Origin' header` errors
+    
+    **Solutions**:
+    - Configure CORS on your S3 bucket (see above)
+    - Verify allowed origins match your frontend URL
+    - Check browser console for specific CORS error
+  </Accordion>
+  
+  <Accordion title="Access Denied">
+    **Symptom**: `AccessDenied` or `403 Forbidden` errors
+    
+    **Solutions**:
+    - Verify IAM policy grants required permissions
+    - Check bucket policy doesn't deny access
+    - Ensure credentials are correct and not expired
+  </Accordion>
+  
+  <Accordion title="Invalid Credentials">
+    **Symptom**: `InvalidAccessKeyId` or `SignatureDoesNotMatch` errors
+    
+    **Solutions**:
+    - Double-check `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+    - Ensure no extra spaces or newlines in credentials
+    - Verify credentials are for the correct account
+  </Accordion>
+  
+  <Accordion title="Bucket Not Found">
+    **Symptom**: `NoSuchBucket` error
+    
+    **Solutions**:
+    - Verify bucket name is correct (case-sensitive)
+    - Check bucket region matches `AWS_REGION`
+    - For S3-compatible services, verify `S3_ENDPOINT` is correct
+  </Accordion>
+  
+  <Accordion title="Upload Size Mismatch">
+    **Symptom**: Upload fails with size error
+    
+    **Solutions**:
+    - Ensure file size passed to presigned URL matches actual upload
+    - Don't modify file after getting presigned URL
+    - Check network didn't truncate upload
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Short-Lived Presigned URLs">
+    Default expiration is 1 hour. Reduce for sensitive files:
+    
+    ```typescript
+    const url = await storage.getPresignedUploadUrl(
+      path,
+      contentType,
+      300  // 5 minutes
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Enforce File Size Limits">
+    Always pass `contentLength` to prevent abuse:
+    
+    ```typescript
+    const url = await storage.getPresignedUploadUrl(
+      path,
+      contentType,
+      3600,
+      maxFileSize
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Validate Content Types">
+    Check file MIME types before generating presigned URLs:
+    
+    ```typescript
+    const allowedTypes = ['application/pdf', 'text/csv'];
+    if (!allowedTypes.includes(contentType)) {
+      throw new Error('Invalid file type');
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Use IAM Least Privilege">
+    Grant only required S3 permissions (see IAM policy above).
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/configuration/environment">
+    View all configuration options
+  </Card>
+  <Card title="Authentication" icon="lock" href="/configuration/authentication">
+    Configure JWT or payment-based auth
+  </Card>
+</CardGroup>

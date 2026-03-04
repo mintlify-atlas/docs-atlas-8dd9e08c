@@ -1,0 +1,436 @@
+---
+title: 'Paper Retrieval API'
+description: 'Access generated research papers and LaTeX source files'
+---
+
+## Overview
+
+The Paper Retrieval API provides access to previously generated research papers. Use this to retrieve papers, get fresh download URLs, and list all papers for a conversation.
+
+<Info>
+  This API is for **retrieving existing papers**. To generate new papers, see [Paper Generation API](/api/paper-generation).
+</Info>
+
+## Authentication
+
+All endpoints require authentication via:
+- JWT token in `Authorization` header
+- API key in `X-API-Key` header
+- x402/b402 payment proof
+
+## URL Expiration
+
+Presigned URLs expire after **1 hour**. Always request fresh URLs when downloading papers:
+
+- ✅ Request URL → Download immediately
+- ✅ Request URL → Download within 1 hour
+- ❌ Cache URL → Download later (will fail after 1 hour)
+
+---
+
+## Endpoints
+
+### Get Paper
+
+<ParamField path="GET /api/deep-research/paper/:paperId" type="endpoint">
+  Get fresh presigned URLs for a paper
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="paperId" type="string" required>
+  Paper ID (UUID returned from generation)
+</ParamField>
+
+**Response**
+
+```json
+{
+  "success": true,
+  "paperId": "550e8400-e29b-41d4-a716-446655440000",
+  "conversationId": "660e8400-e29b-41d4-a716-446655440000",
+  "pdfPath": "user/USER_ID/conversation/CONV_ID/papers/PAPER_ID/paper.pdf",
+  "pdfUrl": "https://s3.amazonaws.com/bucket/path?X-Amz-Signature=...",
+  "rawLatexUrl": "https://s3.amazonaws.com/bucket/path/main.tex?X-Amz-Signature=...",
+  "createdAt": "2024-01-01T12:00:00Z"
+}
+```
+
+<ResponseField name="paperId" type="string">
+  Unique paper identifier
+</ResponseField>
+
+<ResponseField name="conversationId" type="string">
+  Source conversation ID
+</ResponseField>
+
+<ResponseField name="pdfPath" type="string">
+  S3 storage path (for reference)
+</ResponseField>
+
+<ResponseField name="pdfUrl" type="string">
+  Presigned URL for PDF download (expires in 1 hour)
+</ResponseField>
+
+<ResponseField name="rawLatexUrl" type="string" optional>
+  Presigned URL for LaTeX source (may be null for older papers)
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  Paper creation timestamp (ISO 8601)
+</ResponseField>
+
+**cURL Example**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/deep-research/paper/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Download Example**
+
+```bash
+# Get paper URLs
+RESPONSE=$(curl -s -X GET \
+  https://api.bioagents.ai/api/deep-research/paper/$PAPER_ID \
+  -H "Authorization: Bearer $JWT_TOKEN")
+
+# Extract URLs
+PDF_URL=$(echo $RESPONSE | jq -r '.pdfUrl')
+LATEX_URL=$(echo $RESPONSE | jq -r '.rawLatexUrl')
+
+# Download files
+curl -o paper.pdf "$PDF_URL"
+curl -o main.tex "$LATEX_URL"
+```
+
+---
+
+### List Papers
+
+<ParamField path="GET /api/deep-research/conversations/:conversationId/papers" type="endpoint">
+  List all papers for a conversation
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="conversationId" type="string" required>
+  Conversation ID to list papers for
+</ParamField>
+
+**Response**
+
+```json
+{
+  "success": true,
+  "conversationId": "660e8400-e29b-41d4-a716-446655440000",
+  "papers": [
+    {
+      "paperId": "550e8400-e29b-41d4-a716-446655440000",
+      "pdfPath": "user/.../papers/.../paper.pdf",
+      "status": "completed",
+      "createdAt": "2024-01-01T12:00:00Z"
+    },
+    {
+      "paperId": "660e8400-e29b-41d4-a716-446655440001",
+      "pdfPath": "user/.../papers/.../paper.pdf",
+      "status": "completed",
+      "createdAt": "2024-01-01T11:00:00Z"
+    }
+  ]
+}
+```
+
+<ResponseField name="papers" type="array">
+  Array of paper metadata objects, sorted by creation date (newest first)
+</ResponseField>
+
+<ResponseField name="papers[].paperId" type="string">
+  Paper unique identifier
+</ResponseField>
+
+<ResponseField name="papers[].pdfPath" type="string">
+  S3 storage path
+</ResponseField>
+
+<ResponseField name="papers[].status" type="string">
+  Paper status: `pending`, `processing`, `completed`, or `failed`
+</ResponseField>
+
+<ResponseField name="papers[].createdAt" type="string">
+  Creation timestamp (ISO 8601)
+</ResponseField>
+
+**cURL Example**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/deep-research/conversations/CONVERSATION_ID/papers \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Download All Papers Example**
+
+```bash
+# Get paper list
+RESPONSE=$(curl -s -X GET \
+  https://api.bioagents.ai/api/deep-research/conversations/$CONVERSATION_ID/papers \
+  -H "Authorization: Bearer $JWT_TOKEN")
+
+# Extract paper IDs
+echo $RESPONSE | jq -r '.papers[].paperId' | while read PAPER_ID; do
+  # Get fresh URLs for each paper
+  PAPER=$(curl -s https://api.bioagents.ai/api/deep-research/paper/$PAPER_ID \
+    -H "Authorization: Bearer $JWT_TOKEN")
+  
+  # Download PDF
+  PDF_URL=$(echo $PAPER | jq -r '.pdfUrl')
+  curl -o "paper_${PAPER_ID}.pdf" "$PDF_URL"
+  
+  echo "Downloaded: paper_${PAPER_ID}.pdf"
+done
+```
+
+---
+
+### Check Paper Status
+
+<ParamField path="GET /api/deep-research/paper/:paperId/status" type="endpoint">
+  Check paper generation status (for async jobs)
+</ParamField>
+
+See [Paper Generation API](/api/paper-generation#check-paper-status) for details.
+
+---
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Authentication required",
+  "message": "Valid authentication is required to access papers"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error": "Access denied",
+  "message": "You do not have permission to access this paper"
+}
+```
+
+This occurs when attempting to access another user's paper.
+
+### 404 Not Found (Paper)
+
+```json
+{
+  "error": "Paper not found",
+  "message": "Paper with id 550e8400-e29b-41d4-a716-446655440000 not found"
+}
+```
+
+### 404 Not Found (Conversation)
+
+```json
+{
+  "error": "Conversation not found",
+  "message": "Conversation with id 660e8400-e29b-41d4-a716-446655440000 not found"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": "Failed to get paper",
+  "message": "Storage provider unavailable"
+}
+```
+
+### 503 Service Unavailable
+
+```json
+{
+  "error": "Storage unavailable",
+  "message": "Storage provider is not configured"
+}
+```
+
+---
+
+## Paper Metadata
+
+Each paper includes:
+
+### File Structure
+
+```
+user/{userId}/conversation/{conversationId}/papers/{paperId}/
+  ├── paper.pdf         # Compiled PDF
+  ├── main.tex          # LaTeX source
+  └── figures/          # Embedded figures (if any)
+      ├── figure1.png
+      └── figure2.png
+```
+
+### Paper Contents
+
+- **Title**: Derived from research objective
+- **Abstract**: Summary of findings
+- **Sections**: Introduction, Methods, Results, Discussion, Conclusion
+- **References**: All cited papers with DOIs
+- **Figures**: Analysis artifacts with captions
+
+---
+
+## Integration Examples
+
+### JavaScript/TypeScript
+
+```typescript
+interface Paper {
+  paperId: string;
+  conversationId: string;
+  pdfUrl: string;
+  rawLatexUrl?: string;
+  createdAt: string;
+}
+
+async function getPaper(paperId: string, token: string): Promise<Paper> {
+  const response = await fetch(
+    `https://api.bioagents.ai/api/deep-research/paper/${paperId}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`Failed to get paper: ${response.statusText}`);
+  }
+  
+  return response.json();
+}
+
+async function downloadPaper(paperId: string, token: string): Promise<Blob> {
+  const paper = await getPaper(paperId, token);
+  const response = await fetch(paper.pdfUrl);
+  return response.blob();
+}
+
+// Usage
+const paper = await getPaper('550e8400-e29b-41d4-a716-446655440000', token);
+const blob = await downloadPaper(paper.paperId, token);
+
+// Create download link
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = 'research-paper.pdf';
+a.click();
+URL.revokeObjectURL(url);
+```
+
+### Python
+
+```python
+import requests
+import json
+from typing import Dict, List
+
+class PaperClient:
+    def __init__(self, base_url: str, token: str):
+        self.base_url = base_url
+        self.headers = {"Authorization": f"Bearer {token}"}
+    
+    def get_paper(self, paper_id: str) -> Dict:
+        """Get paper metadata with fresh URLs"""
+        response = requests.get(
+            f"{self.base_url}/api/deep-research/paper/{paper_id}",
+            headers=self.headers
+        )
+        response.raise_for_status()
+        return response.json()
+    
+    def list_papers(self, conversation_id: str) -> List[Dict]:
+        """List all papers for a conversation"""
+        response = requests.get(
+            f"{self.base_url}/api/deep-research/conversations/{conversation_id}/papers",
+            headers=self.headers
+        )
+        response.raise_for_status()
+        return response.json()["papers"]
+    
+    def download_paper(self, paper_id: str, output_path: str):
+        """Download paper PDF"""
+        paper = self.get_paper(paper_id)
+        
+        # Download from presigned URL
+        response = requests.get(paper["pdfUrl"])
+        response.raise_for_status()
+        
+        with open(output_path, "wb") as f:
+            f.write(response.content)
+        
+        print(f"Downloaded: {output_path}")
+
+# Usage
+client = PaperClient("https://api.bioagents.ai", token)
+papers = client.list_papers(conversation_id)
+
+for paper in papers:
+    if paper["status"] == "completed":
+        client.download_paper(paper["paperId"], f"paper_{paper['paperId']}.pdf")
+```
+
+---
+
+## Best Practices
+
+### 1. Always Request Fresh URLs
+
+Don't cache presigned URLs for more than a few minutes:
+
+```javascript
+// ❌ Bad: Cache URL for long-term use
+const paper = await getPaper(paperId);
+localStorage.setItem('pdfUrl', paper.pdfUrl); // Will expire!
+
+// ✅ Good: Request fresh URL when needed
+async function downloadWhenNeeded(paperId) {
+  const paper = await getPaper(paperId);
+  return fetch(paper.pdfUrl);
+}
+```
+
+### 2. Handle Missing LaTeX Sources
+
+Older papers may not have LaTeX sources:
+
+```javascript
+const paper = await getPaper(paperId);
+
+if (paper.rawLatexUrl) {
+  // Download LaTeX source
+  const latex = await fetch(paper.rawLatexUrl);
+} else {
+  console.log('LaTeX source not available for this paper');
+}
+```
+
+### 3. Verify Paper Status Before Download
+
+```javascript
+const papers = await listPapers(conversationId);
+
+for (const paper of papers) {
+  if (paper.status === 'completed') {
+    await downloadPaper(paper.paperId);
+  } else if (paper.status === 'failed') {
+    console.error(`Paper ${paper.paperId} generation failed`);
+  } else {
+    console.log(`Paper ${paper.paperId} is ${paper.status}`);
+  }
+}
+```

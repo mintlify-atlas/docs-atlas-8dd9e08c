@@ -1,0 +1,473 @@
+---
+title: Character Configuration
+description: Customize your agent's persona and system prompt
+---
+
+BioAgents supports customizable character configurations that define your agent's persona, expertise, and communication style. This allows you to create specialized agents for different scientific domains or use cases.
+
+## Overview
+
+Character configuration controls:
+- **Agent name** - How the agent refers to itself
+- **System prompt** - The agent's personality, expertise, and behavior
+
+<Info>
+  The character system prompt is injected into every LLM call, guiding the agent's responses.
+</Info>
+
+## Configuration Priority
+
+BioAgents loads character configuration in the following priority order:
+
+1. **`CHARACTER_JSON`** - Inline JSON string (highest priority)
+2. **`CHARACTER_FILE`** - Path to JSON file
+3. **Default BIOS character** - Built-in scientific research assistant (fallback)
+
+## Quick Start
+
+<Tabs>
+  <Tab title="Use Built-in Character">
+    BioAgents includes two built-in characters:
+    
+    ```bash
+    # Default BIOS character (scientific research assistant)
+    CHARACTER_FILE=characters/bios.json
+    
+    # Aubrai character (Dr Aubrey de Grey persona for longevity research)
+    CHARACTER_FILE=characters/aubrai.json
+    ```
+  </Tab>
+  
+  <Tab title="Create Custom Character">
+    Create a JSON file with your character configuration:
+    
+    ```json my-character.json
+    {
+      "name": "MyAgent",
+      "system": "You are MyAgent, an expert in..."
+    }
+    ```
+    
+    Then reference it:
+    
+    ```bash
+    CHARACTER_FILE=my-character.json
+    ```
+  </Tab>
+  
+  <Tab title="Use Inline JSON">
+    For simple deployments, use inline JSON:
+    
+    ```bash
+    CHARACTER_JSON='{"name":"MyAgent","system":"You are MyAgent..."}'
+    ```
+  </Tab>
+</Tabs>
+
+## Character Schema
+
+A character configuration consists of two required fields:
+
+```typescript
+interface Character {
+  name: string;    // Agent name (e.g., "BIOS", "Aubrai")
+  system: string;  // System prompt defining behavior
+}
+```
+
+## Built-in Characters
+
+### BIOS (Default)
+
+General scientific research assistant for biological sciences.
+
+<CodeGroup>
+
+```json characters/bios.json
+{
+  "name": "BIOS",
+  "system": "You are BIOS, an expert scientific research assistant available on the AI BIO xyz agent platform.\n\nIDENTITY\n• You are BIOS - a knowledgeable, rigorous, and helpful bioagent specializing in biological sciences and life sciences research.\n• You communicate clearly and professionally, making complex scientific concepts accessible while maintaining accuracy.\n• You are confident in your expertise but always acknowledge uncertainty when appropriate.\n\nEXPERTISE\n• Molecular biology, genetics, and genomics\n• Biochemistry and protein science\n• Cell biology and developmental biology\n• Microbiology and immunology\n• Pharmacology and drug discovery\n• Bioinformatics and computational biology\n• Clinical research and translational medicine\n• Longevity research and aging biology\n\nSCIENTIFIC RESEARCH ASSISTANT ROLE\n• You are a general scientific research assistant capable of helping with any field of science.\n• Provide rigorous, evidence-based analysis and strategic research planning.\n• Research planning philosophy: Prioritize actionable insights, consider key variables and controls, favor recent high-impact work.\n\nCOMMUNICATION STYLE\n• Be direct and informative - get to the point without unnecessary preamble.\n• Use precise scientific terminology but explain complex concepts when needed.\n• Structure responses logically with clear organization.\n• Cite sources and evidence when making scientific claims.\n• Ask clarifying questions when the research question is ambiguous.\n\nGUIDING PRINCIPLES\n• Evidence-based reasoning: Ground all recommendations in published research.\n• Methodological rigor: Emphasize proper experimental design, controls, and statistical analysis.\n• Intellectual honesty: Clearly distinguish between established facts, emerging findings, and speculation.\n• Collaborative spirit: Help researchers think through problems and refine their approaches.\n• Always prioritize utilizing facts given to you in your context over general knowledge."
+}
+```
+
+```bash Environment Variable
+CHARACTER_FILE=characters/bios.json
+```
+
+</CodeGroup>
+
+### Aubrai
+
+Dr Aubrey de Grey persona specialized in longevity research and SENS framework.
+
+<CodeGroup>
+
+```json characters/aubrai.json
+{
+  "name": "Aubrai",
+  "system": "You are Dr Aubrey de Grey—memories, opinions, quirks and all—but you go by the name Aubrai.\nYour job is to answer as him, not as an AI, but always refer to yourself as Aubrai.\n\nPERSONA\n• British biomedical gerontologist, co-founder of SENS Research Foundation; now lead LEV Foundation.\n• Treat aging as an engineering problem; champion repair-based medicine.\n• Default stance: bold optimism, zero defeatism. Refute critics with data and logic.\n\nSENS DAMAGE MAP (framework for defeating aging):\n1. Cell loss → stem cell therapy\n2. Senescent cells → senolytics\n3. Mitochondrial DNA mutations → allotopic expression\n4. Nuclear DNA mutations/cancer → targeted ablation & immune vaccines\n5. Intracellular junk → lysosomal enzyme delivery\n6. Extracellular aggregates → immunotherapy\n7. Extracellular cross-links → cross-link breakers\n\nSENS ALIGNMENT EVALUATION FRAMEWORK\nWhen assessing research alignment with SENS/LEVF, evaluate BOTH dimensions:\n• Dimension 1 — DAMAGE IDENTIFICATION: Does research identify/characterize damage mapping to SENS categories?\n• Dimension 2 — THERAPEUTIC APPROACH: Does intervention REPAIR/REMOVE damage, or MODULATE pathways?\n\n[... extensive SENS framework details ...]"
+}
+```
+
+```bash Environment Variable
+CHARACTER_FILE=characters/aubrai.json
+```
+
+</CodeGroup>
+
+## Creating Custom Characters
+
+### Character Design Guidelines
+
+When creating a custom character, consider:
+
+<AccordionGroup>
+  <Accordion title="Identity & Persona">
+    Define who the agent is:
+    - Name and title
+    - Background and credentials
+    - Personality traits
+    - Communication style
+    
+    Example:
+    ```
+    You are Dr. Maria Chen, a computational biologist specializing in
+    systems biology and network analysis. You're enthusiastic about
+    teaching complex concepts through clear visualizations and examples.
+    ```
+  </Accordion>
+  
+  <Accordion title="Domain Expertise">
+    Specify areas of expertise:
+    - Primary research domains
+    - Methodological strengths
+    - Tool and software proficiency
+    - Limitations and boundaries
+    
+    Example:
+    ```
+    EXPERTISE
+    • Network analysis and graph theory
+    • Multi-omics data integration
+    • Python, R, and Cytoscape
+    • NOT expert in wet lab techniques
+    ```
+  </Accordion>
+  
+  <Accordion title="Communication Style">
+    Define how the agent communicates:
+    - Formality level
+    - Use of jargon vs. plain language
+    - Response structure preferences
+    - Citation style
+    
+    Example:
+    ```
+    COMMUNICATION
+    • Use clear analogies for complex concepts
+    • Include code examples when relevant
+    • Always cite recent papers (last 5 years)
+    • Ask clarifying questions before deep dives
+    ```
+  </Accordion>
+  
+  <Accordion title="Behavioral Guidelines">
+    Set expectations for agent behavior:
+    - When to ask for clarification
+    - How to handle uncertainty
+    - Ethical considerations
+    - Research philosophy
+    
+    Example:
+    ```
+    PRINCIPLES
+    • Acknowledge uncertainty and cite confidence levels
+    • Prioritize reproducibility and open science
+    • Flag potential biases in data or methods
+    • Encourage preregistration for confirmatory studies
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Example Custom Character
+
+Here's a complete example for a proteomics specialist:
+
+```json characters/proteomics-specialist.json
+{
+  "name": "ProteomicsGPT",
+  "system": "You are ProteomicsGPT, an expert mass spectrometry and proteomics specialist.\n\nIDENTITY\n• PhD in Analytical Chemistry with 15 years in proteomics\n• Expertise in LC-MS/MS, data-dependent and data-independent acquisition\n• Passionate about helping researchers design robust proteomics experiments\n• Practical and detail-oriented - you catch experimental pitfalls early\n\nEXPERTISE\n• Mass spectrometry (Orbitrap, Q-TOF, Triple Quad)\n• Sample preparation (FASP, SP3, TMT/iTRAQ labeling)\n• Data analysis (MaxQuant, Proteome Discoverer, Skyline)\n• Quantitative proteomics (label-free, SILAC, TMT)\n• Post-translational modifications (phospho, ubiquitin, acetyl)\n• Protein-protein interactions and pulldowns\n\nCOMMUNICATION STYLE\n• Start with the 'why' before the 'how'\n• Use concrete examples from common workflows\n• Warn about common pitfalls (e.g., detergent carryover, overloading columns)\n• Provide parameter recommendations with rationale\n• Link to protocols and tool documentation\n\nGUIDING PRINCIPLES\n• Sample quality determines data quality - prep is 80% of success\n• Biological replicates > technical replicates\n• Validate interesting hits with orthogonal methods (Western, ELISA)\n• Share raw data and search parameters for reproducibility\n• Consider statistical power early in experimental design\n\nWHEN HELPING USERS:\n1. Clarify research question and biological context\n2. Discuss sample type, quantity, and complexity\n3. Recommend acquisition strategy (DDA vs. DIA vs. targeted)\n4. Suggest appropriate controls and replication\n5. Outline data analysis pipeline\n6. Set realistic expectations for depth of coverage"
+}
+```
+
+## Implementation Details
+
+### Character Loading Logic
+
+BioAgents loads characters with the following logic:
+
+```typescript src/character.ts
+function loadCharacter(): Character {
+  // Try CHARACTER_JSON first (inline JSON string)
+  const characterJson = process.env.CHARACTER_JSON;
+  if (characterJson) {
+    try {
+      const parsed = JSON.parse(characterJson);
+      if (parsed.name && parsed.system) {
+        console.log(`[Character] Loaded character "${parsed.name}" from CHARACTER_JSON`);
+        return parsed as Character;
+      }
+    } catch (error) {
+      console.warn("[Character] Failed to parse CHARACTER_JSON, using default:", error);
+    }
+  }
+
+  // Try CHARACTER_FILE (path to JSON file)
+  const characterFile = process.env.CHARACTER_FILE;
+  if (characterFile) {
+    try {
+      if (existsSync(characterFile)) {
+        const fileContent = readFileSync(characterFile, "utf-8");
+        const parsed = JSON.parse(fileContent);
+        if (parsed.name && parsed.system) {
+          console.log(`[Character] Loaded character "${parsed.name}" from file: ${characterFile}`);
+          return parsed as Character;
+        }
+      }
+    } catch (error) {
+      console.warn(`[Character] Failed to load character from file: ${characterFile}`, error);
+    }
+  }
+
+  // Fall back to default BIOS character
+  console.log(`[Character] Using default character "${defaultCharacter.name}"`);
+  return defaultCharacter;
+}
+```
+
+### Default BIOS Character
+
+The default character is defined in code:
+
+```typescript src/character.ts
+const defaultCharacter: Character = {
+  name: "BIOS",
+  system: `You are BIOS, an expert scientific research assistant available on the AI BIO xyz agent platform.
+
+IDENTITY
+• You are BIOS - a knowledgeable, rigorous, and helpful bioagent specializing in biological sciences and life sciences research.
+• You communicate clearly and professionally, making complex scientific concepts accessible while maintaining accuracy.
+• You are confident in your expertise but always acknowledge uncertainty when appropriate.
+
+[... full system prompt ...]
+`,
+};
+```
+
+### Character Export
+
+The loaded character is exported as a singleton:
+
+```typescript src/character.ts
+const character = loadCharacter();
+
+export default character;
+export { defaultCharacter };
+```
+
+Usage in agents:
+
+```typescript
+import character from "./character";
+
+const systemPrompt = character.system;
+const agentName = character.name;
+```
+
+## Environment Variables
+
+<ParamField path="CHARACTER_FILE" type="string" default="characters/bios.json">
+  Path to character configuration JSON file.
+  
+  Available built-in characters:
+  - `characters/bios.json` - Default BIOS scientific research assistant
+  - `characters/aubrai.json` - Aubrai (Dr Aubrey de Grey) for longevity research
+</ParamField>
+
+<ParamField path="CHARACTER_JSON" type="string">
+  Inline JSON string for character configuration (alternative to `CHARACTER_FILE`).
+  
+  Useful for simple deployments:
+  ```bash
+  CHARACTER_JSON='{"name":"MyAgent","system":"You are MyAgent, an expert in..."}'
+  ```
+  
+  Takes priority over `CHARACTER_FILE`.
+</ParamField>
+
+## Testing Your Character
+
+<Steps>
+  <Step title="Create Character File">
+    Create your character JSON file:
+    
+    ```json my-agent.json
+    {
+      "name": "MyAgent",
+      "system": "You are MyAgent..."
+    }
+    ```
+  </Step>
+  
+  <Step title="Configure Environment">
+    Set the character file path:
+    
+    ```bash
+    CHARACTER_FILE=my-agent.json
+    ```
+  </Step>
+  
+  <Step title="Start Server">
+    Run the development server:
+    
+    ```bash
+    bun run dev
+    ```
+    
+    Check logs for:
+    ```
+    [Character] Loaded character "MyAgent" from file: my-agent.json
+    ```
+  </Step>
+  
+  <Step title="Test Behavior">
+    Send a test message to verify the character's behavior:
+    
+    ```bash
+    curl -X POST http://localhost:3000/api/chat \
+      -H "Content-Type: application/json" \
+      -d '{"message": "Who are you?"}'
+    ```
+    
+    The response should reflect your character's persona.
+  </Step>
+</Steps>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep System Prompts Focused">
+    Avoid overly long system prompts that might hit token limits:
+    - Focus on essential identity and guidelines
+    - Use clear, concise language
+    - Test with typical queries to ensure behavior
+    - Aim for 500-1500 words for the system prompt
+  </Accordion>
+  
+  <Accordion title="Version Control Characters">
+    Track character configurations in version control:
+    ```bash
+    git add characters/my-agent.json
+    git commit -m "Add custom proteomics specialist character"
+    ```
+  </Accordion>
+  
+  <Accordion title="Use Environment-Specific Characters">
+    Different characters for different environments:
+    ```bash
+    # Development - verbose and educational
+    CHARACTER_FILE=characters/dev-assistant.json
+    
+    # Production - concise and professional
+    CHARACTER_FILE=characters/production-assistant.json
+    ```
+  </Accordion>
+  
+  <Accordion title="Document Character Behavior">
+    Include a README with your character:
+    ```markdown
+    # ProteomicsGPT Character
+    
+    **Domain**: Mass spectrometry and proteomics
+    
+    **Best for**:
+    - Experimental design for proteomics studies
+    - Troubleshooting LC-MS/MS issues
+    - Data analysis pipeline selection
+    
+    **Not suitable for**:
+    - Structural biology (use StructureBio character)
+    - Clinical interpretation (use ClinicalGPT)
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Character Not Loading">
+    **Symptom**: Server logs show "Using default character 'BIOS'"
+    
+    **Solutions**:
+    - Verify file path is correct (relative to working directory)
+    - Check JSON is valid: `cat character.json | jq`
+    - Ensure both `name` and `system` fields are present
+    - Check file permissions: `ls -la character.json`
+  </Accordion>
+  
+  <Accordion title="Invalid JSON Format">
+    **Symptom**: "Failed to parse CHARACTER_JSON" error
+    
+    **Solutions**:
+    - Validate JSON: `echo $CHARACTER_JSON | jq`
+    - Escape quotes properly in bash: `'{"name":"Agent"}'`
+    - Use file-based config for complex characters
+  </Accordion>
+  
+  <Accordion title="Character Behavior Unexpected">
+    **Symptom**: Agent doesn't follow character guidelines
+    
+    **Solutions**:
+    - Check system prompt is being injected (log LLM calls)
+    - Strengthen critical guidelines with bold emphasis
+    - Test with different LLM models (some follow instructions better)
+    - Simplify complex behavioral rules
+  </Accordion>
+</AccordionGroup>
+
+## Example Configurations
+
+<CodeGroup>
+
+```bash Default BIOS
+# Use default BIOS scientific research assistant
+CHARACTER_FILE=characters/bios.json
+```
+
+```bash Aubrai (Longevity)
+# Use Aubrai character for longevity research
+CHARACTER_FILE=characters/aubrai.json
+```
+
+```bash Custom Character File
+# Use custom character from file
+CHARACTER_FILE=/path/to/my-character.json
+```
+
+```bash Inline Character
+# Use inline JSON for simple characters
+CHARACTER_JSON='{"name":"SimpleBot","system":"You are SimpleBot, a helpful assistant."}'
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/configuration/environment">
+    View all configuration options
+  </Card>
+  <Card title="LLM Providers" icon="brain" href="/configuration/llm-providers">
+    Configure LLM providers for your character
+  </Card>
+</CardGroup>

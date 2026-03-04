@@ -1,0 +1,726 @@
+---
+title: Setup Guide
+description: Complete configuration guide for all BioAgents features and integrations
+---
+
+This guide covers all configuration options for BioAgents. For a quick start, see the [Quickstart Guide](/quickstart).
+
+## Core Configuration
+
+### LLM Providers
+
+BioAgents uses different LLM models for different agents. Configure each agent's provider and model separately:
+
+```bash .env
+# Reply Agent - generates user-facing responses
+REPLY_LLM_PROVIDER=openai
+REPLY_LLM_MODEL=gpt-4o
+
+# Hypothesis Agent - creates scientific hypotheses
+HYP_LLM_PROVIDER=openai
+HYP_LLM_MODEL=gpt-4o
+
+# Planning Agent - creates research plans
+PLANNING_LLM_PROVIDER=openai
+PLANNING_LLM_MODEL=gpt-4o
+
+# Structured Output Agent - for parsing and structured data
+STRUCTURED_LLM_PROVIDER=openai
+STRUCTURED_LLM_MODEL=gpt-4o
+
+# Continue Research Agent - autonomous research decisions
+CONTINUE_RESEARCH_LLM_PROVIDER=anthropic
+CONTINUE_RESEARCH_LLM_MODEL=claude-sonnet-4-5-20250929
+```
+
+#### Supported Providers
+
+<Tabs>
+  <Tab title="OpenAI">
+    ```bash .env
+    OPENAI_API_KEY=sk-...
+    REPLY_LLM_PROVIDER=openai
+    REPLY_LLM_MODEL=gpt-4o
+    ```
+    
+    Supported models:
+    - `gpt-4o` (recommended)
+    - `gpt-4-turbo`
+    - `gpt-3.5-turbo` (for testing)
+  </Tab>
+  
+  <Tab title="Anthropic">
+    ```bash .env
+    ANTHROPIC_API_KEY=sk-ant-...
+    REPLY_LLM_PROVIDER=anthropic
+    REPLY_LLM_MODEL=claude-sonnet-4-5-20250929
+    ```
+    
+    Supported models:
+    - `claude-sonnet-4-5-20250929` (recommended)
+    - `claude-opus-4-20240229`
+    - Extended thinking support available
+  </Tab>
+  
+  <Tab title="Google">
+    ```bash .env
+    GOOGLE_API_KEY=...
+    REPLY_LLM_PROVIDER=google
+    REPLY_LLM_MODEL=gemini-2.0-flash-001
+    ```
+    
+    Supported models:
+    - `gemini-2.0-flash-001`
+    - `gemini-1.5-pro`
+  </Tab>
+  
+  <Tab title="OpenRouter">
+    ```bash .env
+    OPENROUTER_API_KEY=sk-or-...
+    REPLY_LLM_PROVIDER=openrouter
+    REPLY_LLM_MODEL=anthropic/claude-3-opus
+    ```
+    
+    Access to various models through OpenRouter's API.
+  </Tab>
+</Tabs>
+
+### Database Configuration
+
+BioAgents uses Supabase (PostgreSQL) with the pgvector extension:
+
+```bash .env
+# Supabase Configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+
+# Service role key for backend operations (bypasses RLS)
+SUPABASE_SERVICE_KEY=your-service-role-key
+
+# Full URL for migration container (optional)
+SUPABASE_FULL_URL=postgresql://postgres:password@host:5432/postgres
+```
+
+<Warning>
+**SUPABASE_SERVICE_KEY** is required when Row Level Security (RLS) is enabled. The backend uses this key to bypass RLS since authentication is already verified by the auth middleware. Keep this key secret!
+</Warning>
+
+## Literature Agents Setup
+
+Literature agents search and synthesize scientific literature. Start with the KNOWLEDGE agent and add more advanced options as needed.
+
+### KNOWLEDGE Agent (Recommended Starting Point)
+
+The easiest literature backend to set up - searches your custom documents using vector similarity:
+
+```bash .env
+# Embedding provider for document vectorization
+EMBEDDING_PROVIDER=openai
+TEXT_EMBEDDING_MODEL=text-embedding-3-large
+
+# Cohere reranker for better search results (optional but recommended)
+COHERE_API_KEY=your-cohere-api-key
+USE_RERANKING=true
+
+# Vector search settings
+VECTOR_SEARCH_LIMIT=20
+RERANK_FINAL_LIMIT=5
+SIMILARITY_THRESHOLD=0.75
+RERANKER_SCORE_THRESHOLD=0.3
+
+# Document processing
+KNOWLEDGE_DOCS_PATH=docs
+CHUNK_SIZE=2000
+CHUNK_OVERLAP=200
+```
+
+<Steps>
+  <Step title="Get an OpenAI API key">
+    Required for generating embeddings (or use another embedding provider)
+  </Step>
+  
+  <Step title="Optional: Get Cohere API key">
+    Significantly improves search results through reranking
+  </Step>
+  
+  <Step title="Add documents to docs/ directory">
+    Supported formats: PDF, Markdown (.md), DOCX, TXT
+    
+    ```bash
+    docs/
+    ├── research-paper-1.pdf
+    ├── domain-knowledge.md
+    └── dataset-docs.txt
+    ```
+  </Step>
+  
+  <Step title="Documents are processed on startup">
+    Embeddings are automatically generated and stored in PostgreSQL with pgvector
+  </Step>
+</Steps>
+
+### OpenScholar Agent (Optional)
+
+Adds high-quality scientific literature search with peer-reviewed citations:
+
+```bash .env
+OPENSCHOLAR_API_URL=https://your-openscholar-deployment.com
+OPENSCHOLAR_API_KEY=your-api-key
+```
+
+<Steps>
+  <Step title="Deploy OpenScholar">
+    Follow the deployment guide at [bio-xyz/bio-openscholar](https://github.com/bio-xyz/bio-openscholar)
+  </Step>
+  
+  <Step title="Add credentials to .env">
+    Set `OPENSCHOLAR_API_URL` and `OPENSCHOLAR_API_KEY`
+  </Step>
+</Steps>
+
+**Research**: Based on [arXiv:2411.14199](https://arxiv.org/abs/2411.14199)
+
+### BioLiterature Agent (Optional)
+
+Bio's in-house scientific literature API with rich synthesized answers:
+
+```bash .env
+BIO_LIT_AGENT_API_URL=https://your-bioliterature-deployment.com
+BIO_LIT_AGENT_API_KEY=your-api-key
+
+# Optional: set as primary agent for deep research
+PRIMARY_LITERATURE_AGENT=bio
+```
+
+### Edison Literature Agent (Optional)
+
+The most advanced literature search option with deep synthesis capabilities:
+
+```bash .env
+EDISON_API_URL=https://your-edison-deployment.com
+EDISON_API_KEY=your-api-key
+```
+
+<Steps>
+  <Step title="Deploy Edison API">
+    Follow the guide at [bio-xyz/bio-edison-api](https://github.com/bio-xyz/bio-edison-api)
+  </Step>
+  
+  <Step title="Add credentials to .env">
+    Set `EDISON_API_URL` and `EDISON_API_KEY`
+  </Step>
+</Steps>
+
+**What you gain**:
+- Advanced literature synthesis
+- Used in deep research mode for iterative investigation
+- Best-in-class citation quality
+
+## Analysis Agents Setup
+
+<Warning>
+**Required for dataset processing:** You MUST configure at least one analysis agent (Edison or BIO) to process uploaded datasets (CSV, Excel, etc.).
+</Warning>
+
+### Storage Setup (Required First)
+
+Before configuring analysis agents, set up S3-compatible storage for dataset uploads:
+
+<Tabs>
+  <Tab title="AWS S3">
+    ```bash .env
+    STORAGE_PROVIDER=s3
+    
+    AWS_ACCESS_KEY_ID=your-access-key
+    AWS_SECRET_ACCESS_KEY=your-secret-key
+    AWS_REGION=us-east-1
+    S3_BUCKET=your-bucket-name
+    ```
+    
+    <Steps>
+      <Step title="Create S3 bucket in AWS Console" />
+      <Step title="Create IAM user with S3 access" />
+      <Step title="Add credentials to .env" />
+    </Steps>
+  </Tab>
+  
+  <Tab title="DigitalOcean Spaces">
+    ```bash .env
+    STORAGE_PROVIDER=s3
+    
+    AWS_ACCESS_KEY_ID=your-spaces-key
+    AWS_SECRET_ACCESS_KEY=your-spaces-secret
+    AWS_REGION=us-east-1
+    S3_BUCKET=your-space-name
+    S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+    ```
+    
+    <Steps>
+      <Step title="Create a Space in DigitalOcean" />
+      <Step title="Generate Spaces access key" />
+      <Step title="Set S3_ENDPOINT to your region" />
+      <Step title="Add credentials to .env" />
+    </Steps>
+  </Tab>
+  
+  <Tab title="MinIO (Self-hosted)">
+    ```bash .env
+    STORAGE_PROVIDER=s3
+    
+    AWS_ACCESS_KEY_ID=your-minio-access-key
+    AWS_SECRET_ACCESS_KEY=your-minio-secret-key
+    AWS_REGION=us-east-1
+    S3_BUCKET=bioagents
+    S3_ENDPOINT=https://minio.yourdomain.com
+    ```
+    
+    <Steps>
+      <Step title="Deploy MinIO server" />
+      <Step title="Create bucket" />
+      <Step title="Set S3_ENDPOINT to MinIO URL" />
+      <Step title="Add credentials to .env" />
+    </Steps>
+  </Tab>
+</Tabs>
+
+### Edison Analysis Agent (Default)
+
+The default analysis backend with advanced capabilities:
+
+```bash .env
+EDISON_API_URL=https://your-edison-deployment.com
+EDISON_API_KEY=your-api-key
+EDISON_TASK_TIMEOUT_MINUTES=30
+```
+
+<Steps>
+  <Step title="Deploy Edison API">
+    Follow [bio-xyz/bio-edison-api](https://github.com/bio-xyz/bio-edison-api)
+  </Step>
+  
+  <Step title="Add credentials">
+    Edison is used by default - no `PRIMARY_ANALYSIS_AGENT` setting needed
+  </Step>
+</Steps>
+
+**Capabilities**:
+- Deep analysis of uploaded datasets
+- Automatic file upload to Edison storage
+- Code execution in secure sandbox
+- Returns detailed analysis results with visualizations
+
+### BIO Data Analysis Agent (Alternative)
+
+Alternative analysis backend if not using Edison:
+
+```bash .env
+PRIMARY_ANALYSIS_AGENT=bio
+DATA_ANALYSIS_API_URL=https://your-bio-analysis-deployment.com
+DATA_ANALYSIS_API_KEY=your-api-key
+BIO_ANALYSIS_TASK_TIMEOUT_MINUTES=60
+```
+
+<Steps>
+  <Step title="Deploy BIO analysis agent">
+    Follow [bio-xyz/bio-data-analysis](https://github.com/bio-xyz/bio-data-analysis)
+  </Step>
+  
+  <Step title="Configure as primary">
+    Set `PRIMARY_ANALYSIS_AGENT=bio` in `.env`
+  </Step>
+</Steps>
+
+<Note>
+You only need **either** Edison **or** BIO for analysis - not both.
+</Note>
+
+### Task Timeout Configuration
+
+```bash .env
+# Timeout for Bio data analysis tasks (default: 60 minutes)
+BIO_ANALYSIS_TASK_TIMEOUT_MINUTES=60
+
+# Timeout for Bio literature search tasks (default: 60 minutes)
+BIO_LITERATURE_TASK_TIMEOUT_MINUTES=60
+
+# Timeout for Edison tasks (default: 30 minutes)
+EDISON_TASK_TIMEOUT_MINUTES=30
+
+# TTL for file status records (default: 60 minutes)
+FILE_STATUS_TTL_MINUTES=60
+```
+
+## Character Configuration
+
+Customize your agent's personality and behavior:
+
+<Tabs>
+  <Tab title="Using Character Files">
+    ```bash .env
+    # Use one of the provided character files
+    CHARACTER_FILE=characters/bios.json
+    # CHARACTER_FILE=characters/aubrai.json
+    ```
+    
+    Available characters:
+    - `characters/bios.json` - Default BIOS scientific research assistant
+    - `characters/aubrai.json` - Dr Aubrey de Grey persona for longevity research
+  </Tab>
+  
+  <Tab title="Inline JSON">
+    ```bash .env
+    CHARACTER_JSON={"name":"MyAgent","system":"You are MyAgent, a helpful research assistant..."}
+    ```
+    
+    Useful for simple deployments without separate files.
+  </Tab>
+  
+  <Tab title="Code Configuration">
+    Edit `src/character.ts` directly:
+    
+    ```typescript src/character.ts
+    const character = {
+      name: "YourAgentName",
+      system: `You are a specialized research assistant focused on...
+      
+      Your expertise includes:
+      - Domain-specific knowledge
+      - Research methodology
+      - Data analysis
+      
+      Always provide citations and evidence for your claims.`,
+    };
+    ```
+  </Tab>
+</Tabs>
+
+**Priority**: `CHARACTER_JSON` > `CHARACTER_FILE` > default BIOS character
+
+## Authentication Setup
+
+BioAgents supports multiple authentication methods:
+
+<Tabs>
+  <Tab title="Development (No Auth)">
+    ```bash .env
+    AUTH_MODE=none
+    ```
+    
+    No authentication required - useful for local development.
+  </Tab>
+  
+  <Tab title="Production (JWT)">
+    ```bash .env
+    AUTH_MODE=jwt
+    BIOAGENTS_SECRET=your-secure-secret
+    MAX_JWT_EXPIRATION=3600
+    ```
+    
+    Generate a secure secret:
+    ```bash
+    openssl rand -hex 32
+    ```
+    
+    Your backend signs JWTs with the shared secret:
+    
+    ```javascript
+    const jwt = await new jose.SignJWT({ sub: userId })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.BIOAGENTS_SECRET));
+    
+    // Call BioAgents API
+    fetch('https://your-bioagents-api/api/chat', {
+      headers: { 'Authorization': `Bearer ${jwt}` },
+      body: JSON.stringify({ message: 'What is rapamycin?' })
+    });
+    ```
+  </Tab>
+  
+  <Tab title="x402 Payments">
+    ```bash .env
+    X402_ENABLED=true
+    X402_ENVIRONMENT=testnet
+    X402_PAYMENT_ADDRESS=0xYourWalletAddress
+    X402_FACILITATOR_URL=https://x402.org/facilitator
+    X402_NETWORK=base-sepolia
+    X402_ASSET=USDC
+    X402_USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e
+    X402_TIMEOUT=30
+    
+    # Coinbase Developer Platform (mainnet only)
+    CDP_API_KEY_ID=your-cdp-key-id
+    CDP_API_KEY_SECRET=your-cdp-secret
+    CDP_PROJECT_ID=your-project-id
+    ```
+    
+    Pay-per-request access using USDC on Base network.
+  </Tab>
+  
+  <Tab title="b402 Payments">
+    ```bash .env
+    B402_ENABLED=true
+    B402_ENVIRONMENT=testnet
+    B402_PAYMENT_ADDRESS=0xYourWalletAddress
+    B402_FACILITATOR_URL=https://facilitator.bioagents.dev
+    B402_NETWORK=bnb-testnet
+    B402_ASSET=USDT
+    B402_USDT_ADDRESS=0x337610d27c682E347C9cD60BD4b3b107C9d34dDd
+    B402_TIMEOUT=30
+    ```
+    
+    Pay-per-request access using USDT on BNB Chain.
+  </Tab>
+</Tabs>
+
+### CORS Configuration
+
+```bash .env
+# Comma-separated list of allowed origins
+# REQUIRED in production to prevent CSRF attacks
+ALLOWED_ORIGINS=https://app.example.com,https://dashboard.example.com
+
+# Leave empty for development (defaults to localhost:3000, localhost:5173)
+# ALLOWED_ORIGINS=
+```
+
+## Job Queue Setup (Production)
+
+For production deployments with horizontal scaling:
+
+```bash .env
+# Enable job queue
+USE_JOB_QUEUE=true
+
+# Redis connection
+REDIS_URL=redis://localhost:6379
+
+# Alternative Redis configuration
+# REDIS_HOST=localhost
+# REDIS_PORT=6379
+# REDIS_PASSWORD=
+
+# Queue concurrency settings
+CHAT_QUEUE_CONCURRENCY=5
+DEEP_RESEARCH_QUEUE_CONCURRENCY=3
+PAPER_GENERATION_CONCURRENCY=1
+
+# Paper generation limits
+MAX_CONCURRENT_PAPER_JOBS=3
+
+# Bull Board admin dashboard
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your-secure-password
+```
+
+### Running with Job Queue
+
+<CodeGroup>
+```bash Development
+# Terminal 1: API Server
+USE_JOB_QUEUE=true bun run dev
+
+# Terminal 2: Worker
+USE_JOB_QUEUE=true bun run worker:dev
+```
+
+```bash Production
+# Using Docker (recommended)
+docker compose up -d
+
+# Scale workers horizontally
+docker compose up -d --scale worker=3
+
+# Or manually
+USE_JOB_QUEUE=true bun run start    # Terminal 1
+USE_JOB_QUEUE=true bun run worker   # Terminal 2
+```
+</CodeGroup>
+
+**Features**:
+- Horizontal scaling with multiple workers
+- Job persistence (survive server restarts)
+- Automatic retries with exponential backoff
+- Real-time updates via WebSocket
+- Bull Board dashboard at `/admin/queues`
+
+### Rate Limiting
+
+```bash .env
+# Rate limiting (per user)
+CHAT_RATE_LIMIT_PER_MINUTE=10
+DEEP_RESEARCH_RATE_LIMIT_PER_5MIN=3
+```
+
+## Autonomous Research Configuration
+
+Controls deep research loop behavior:
+
+```bash .env
+# LLM for autonomous research decisions
+CONTINUE_RESEARCH_LLM_PROVIDER=anthropic
+CONTINUE_RESEARCH_LLM_MODEL=claude-sonnet-4-5-20250929
+
+# Max autonomous iterations (when fullyAutonomous=false)
+MAX_AUTO_ITERATIONS=5
+```
+
+When `fullyAutonomous=true`, the hard cap is 20 iterations regardless of this setting.
+
+## SEO Configuration (Optional)
+
+```bash .env
+SEO_TITLE=BioAgents - AI Research Assistant
+SEO_DESCRIPTION=Advanced AI agent framework for biological and scientific research
+FAVICON_URL=https://yourdomain.com/favicon.ico
+OG_IMAGE_URL=https://yourdomain.com/og-image.png
+```
+
+## Agent Identity (Optional)
+
+```bash .env
+# Name and email used for paper authorship and prompts
+AGENT_NAME=BIOS
+AGENT_EMAIL=bios@bio.xyz
+```
+
+If not set, papers will use "Anonymous" or just user email as author.
+
+## Docker Deployment
+
+### Production (with Job Queue)
+
+```bash
+# Start all services (API + Worker + Redis)
+docker compose up -d
+
+# Scale workers horizontally
+docker compose up -d --scale worker=3
+
+# View logs
+docker compose logs -f bioagents
+docker compose logs -f worker
+
+# Stop all services
+docker compose down
+```
+
+### Simple (without Queue)
+
+```bash
+# Single container, in-process mode
+docker compose -f docker-compose.simple.yml up -d
+```
+
+<Note>
+When deploying with Docker, agent-specific documentation in `docs/` and branding images in `client/public/images/` are persisted using Docker volumes. These directories are excluded from git but automatically mounted in containers.
+</Note>
+
+## Complete Environment Example
+
+Here's a production-ready configuration:
+
+```bash .env
+# ============================================================================
+# Authentication
+# ============================================================================
+BIOAGENTS_SECRET=<generate-with-openssl-rand-hex-32>
+AUTH_MODE=jwt
+NODE_ENV=production
+ALLOWED_ORIGINS=https://app.yourdomain.com
+MAX_JWT_EXPIRATION=3600
+
+# ============================================================================
+# LLM Providers
+# ============================================================================
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+
+REPLY_LLM_PROVIDER=openai
+REPLY_LLM_MODEL=gpt-4o
+HYP_LLM_PROVIDER=openai
+HYP_LLM_MODEL=gpt-4o
+PLANNING_LLM_PROVIDER=openai
+PLANNING_LLM_MODEL=gpt-4o
+STRUCTURED_LLM_PROVIDER=openai
+STRUCTURED_LLM_MODEL=gpt-4o
+CONTINUE_RESEARCH_LLM_PROVIDER=anthropic
+CONTINUE_RESEARCH_LLM_MODEL=claude-sonnet-4-5-20250929
+
+# ============================================================================
+# Database
+# ============================================================================
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_KEY=your-service-role-key
+
+# ============================================================================
+# Vector Embeddings
+# ============================================================================
+EMBEDDING_PROVIDER=openai
+TEXT_EMBEDDING_MODEL=text-embedding-3-large
+COHERE_API_KEY=your-cohere-key
+USE_RERANKING=true
+VECTOR_SEARCH_LIMIT=20
+RERANK_FINAL_LIMIT=5
+SIMILARITY_THRESHOLD=0.75
+
+# ============================================================================
+# Literature Agents
+# ============================================================================
+OPENSCHOLAR_API_URL=https://openscholar.yourdomain.com
+OPENSCHOLAR_API_KEY=your-key
+EDISON_API_URL=https://edison.yourdomain.com
+EDISON_API_KEY=your-key
+
+# ============================================================================
+# Analysis Agents
+# ============================================================================
+PRIMARY_ANALYSIS_AGENT=edison
+DATA_ANALYSIS_API_URL=https://analysis.yourdomain.com
+DATA_ANALYSIS_API_KEY=your-key
+
+# ============================================================================
+# Storage
+# ============================================================================
+STORAGE_PROVIDER=s3
+AWS_ACCESS_KEY_ID=your-key
+AWS_SECRET_ACCESS_KEY=your-secret
+AWS_REGION=us-east-1
+S3_BUCKET=bioagents-production
+
+# ============================================================================
+# Job Queue
+# ============================================================================
+USE_JOB_QUEUE=true
+REDIS_URL=redis://redis:6379
+CHAT_QUEUE_CONCURRENCY=5
+DEEP_RESEARCH_QUEUE_CONCURRENCY=3
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<secure-password>
+
+# ============================================================================
+# Server
+# ============================================================================
+PORT=3000
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api/chat">
+    Explore the API endpoints and integration options
+  </Card>
+  
+  <Card title="Agent Development" icon="robot" href="/agents/overview">
+    Learn how to create custom agents and extend functionality
+  </Card>
+  
+  <Card title="Deep Research" icon="microscope" href="/features/deep-research-mode">
+    Master the iterative research workflow
+  </Card>
+  
+  <Card title="Deployment Guide" icon="server" href="/deployment/overview">
+    Production deployment best practices
+  </Card>
+</CardGroup>

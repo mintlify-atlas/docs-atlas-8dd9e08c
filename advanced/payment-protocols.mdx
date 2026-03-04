@@ -1,0 +1,447 @@
+---
+title: 'Payment Protocols'
+description: 'Implement x402 (Base/USDC) and b402 (BNB/USDT) payment-gated endpoints'
+icon: 'credit-card'
+---
+
+## Overview
+
+BioAgents supports two payment protocols for monetizing API endpoints:
+
+- **x402**: Base chain (USDC) - Standard protocol for Ethereum L2s
+- **b402**: BNB Chain (USDT/USDC) - Custom protocol for Binance Smart Chain
+
+Both protocols use HTTP 402 (Payment Required) responses and cryptographic payment verification.
+
+## x402 Protocol (Base Chain)
+
+### Configuration
+
+Set up x402 in your `.env` file:
+
+```bash
+# x402 Configuration
+X402_ENABLED=true
+X402_ENVIRONMENT=testnet              # or mainnet
+X402_PAYMENT_ADDRESS=0x...            # Your payment address
+X402_NETWORK=eip155:84532             # Base Sepolia (testnet)
+X402_ASSET=USDC
+X402_USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e  # Base Sepolia USDC
+
+# Facilitator (testnet uses x402.org, mainnet uses CDP)
+X402_FACILITATOR_URL=https://x402.org/facilitator
+
+# CDP Credentials (mainnet only)
+CDP_API_KEY_ID=your_cdp_key_id
+CDP_API_KEY_SECRET=your_cdp_secret
+```
+
+<Info>
+**Testnet**: Uses the open-source x402.org facilitator (no auth required)
+**Mainnet**: Recommended to use Coinbase CDP facilitator (requires API keys)
+</Info>
+
+### Network Configuration
+
+The x402 config automatically sets network parameters based on environment:
+
+```typescript
+// src/middleware/x402/config.ts
+const NETWORK_CONFIG = {
+  testnet: {
+    network: "eip155:84532",           // CAIP-2 format for Base Sepolia
+    facilitatorUrl: "https://x402.org/facilitator",
+    usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    chainId: 84532,
+    rpcUrl: "https://sepolia.base.org",
+    explorer: "https://sepolia.basescan.org",
+  },
+  mainnet: {
+    network: "eip155:8453",            // CAIP-2 format for Base mainnet
+    facilitatorUrl: "https://api.cdp.coinbase.com/platform/v2/x402",
+    usdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    chainId: 8453,
+    rpcUrl: "https://mainnet.base.org",
+    explorer: "https://basescan.org",
+  },
+};
+```
+
+### Protocol Version
+
+BioAgents uses **x402 V2**:
+
+```typescript
+// src/middleware/x402/config.ts
+export const X402_VERSION = 2;
+```
+
+**V2 Changes from V1:**
+- Header: `X-PAYMENT` → `PAYMENT-SIGNATURE`
+- Response header: `X-PAYMENT-RESPONSE` → `PAYMENT-RESPONSE`
+- Improved payment verification flow
+
+### Adding x402 to Routes
+
+Use the middleware in your Elysia routes:
+
+```typescript
+import { Elysia } from "elysia";
+import { x402Middleware } from "../middleware/x402/middleware";
+
+const app = new Elysia()
+  .use(x402Middleware({ enabled: true }))
+  .post("/api/x402/chat", async ({ request, body }) => {
+    // Access payment settlement info
+    const settlement = (request as any).x402Settlement;
+    
+    if (settlement?.success) {
+      console.log("Payment verified:", settlement.transaction);
+    }
+    
+    // Your endpoint logic
+    return { message: "Chat response" };
+  });
+```
+
+### Route Pricing
+
+Define pricing for your endpoints:
+
+```typescript
+// src/middleware/x402/pricing.ts
+export const routePricing: RoutePricing[] = [
+  {
+    route: "/api/x402/chat",
+    priceUSD: "0.01",
+    description: "Chat API access via x402 payment",
+  },
+  {
+    route: "/api/x402/deep-research/start",
+    priceUSD: "0.025",
+    description: "Deep research initiation via x402 payment",
+  },
+  {
+    route: "/api/x402/agents/literature",
+    priceUSD: "0.01",
+    description: "Literature search agent",
+  },
+  {
+    route: "/api/x402/agents/hypothesis",
+    priceUSD: "0.02",
+    description: "Hypothesis generation agent",
+  },
+];
+```
+
+### Payment Flow
+
+<Steps>
+  <Step title="Client Requests Endpoint">
+    Client makes request without payment header:
+    
+    ```bash
+    POST /api/x402/chat
+    Content-Type: application/json
+    
+    {"message": "Hello"}
+    ```
+  </Step>
+  
+  <Step title="Server Returns 402">
+    Server responds with payment requirement:
+    
+    ```json
+    HTTP/1.1 402 Payment Required
+    PAYMENT-REQUIRED: eyJ4NDAyVmVyc2lvbiI6MiwicHJvdG9jb2wiOiJ4NDAyIiwiYWNjZXB0cyI6WyJleUp1WlhSM2IzSnJJam9pWldsdy1MTFUxT2pnME5UTXlJaXdpWVhOelpYUWlPaUpsYVhBdE1UVTFPalUxT1RNNklqQTROVE0xT0RsbVEwUTJaVVJpTmtVd09HWTBZemRETXpKa05HWTNNV0kxTkdKa1FUQXlPVEV6SWl3aWNtVmpiM0oyWlhJaU9pSXdlRGd4UlRrek16UmpOall5UlRNME4wTTVZMFEyTUdKRU5HSmlNMkl4TURkRE9XUXpOR1JFTUU0aWZRIl19Cg==
+    
+    {
+      "x402Version": 2,
+      "protocol": "x402",
+      "accepts": [{"network": "...", "asset": "...", "receiver": "..."}]
+    }
+    ```
+  </Step>
+  
+  <Step title="Client Signs and Pays">
+    Client uses wallet to sign EIP-712 permit and submit payment via facilitator.
+  </Step>
+  
+  <Step title="Client Retries with Payment">
+    Client includes payment signature:
+    
+    ```bash
+    POST /api/x402/chat
+    PAYMENT-SIGNATURE: eyJzaWduYXR1cmUiOiIweDEyMzQuLi4iLCJkYXRhIjp7Li4ufX0=
+    Content-Type: application/json
+    
+    {"message": "Hello"}
+    ```
+  </Step>
+  
+  <Step title="Server Verifies and Settles">
+    Middleware verifies payment signature and settles on-chain. Returns success with payment response header:
+    
+    ```json
+    HTTP/1.1 200 OK
+    PAYMENT-RESPONSE: eyJzdWNjZXNzIjp0cnVlLCJ0cmFuc2FjdGlvbiI6IjB4YWJjLi4uIn0=
+    
+    {"message": "Chat response"}
+    ```
+  </Step>
+</Steps>
+
+## b402 Protocol (BNB Chain)
+
+### Configuration
+
+Set up b402 in your `.env` file:
+
+```bash
+# b402 Configuration
+B402_ENABLED=true
+B402_ENVIRONMENT=testnet              # or mainnet
+B402_PAYMENT_ADDRESS=0x...            # Your payment address
+B402_NETWORK=bnb-testnet              # or bnb
+B402_ASSET=USDT                       # or USDC
+
+# Token addresses (auto-configured based on environment)
+B402_USDC_ADDRESS=0x64544969ed7EBf5f083679233325356EbE738930  # BNB Testnet
+B402_USDT_ADDRESS=0x337610d27c682E347C9cD60BD4b3b107C9d34dDd  # BNB Testnet
+
+# Facilitator
+B402_FACILITATOR_URL=http://localhost:8080  # Testnet (local)
+# B402_FACILITATOR_URL=https://facilitator.bioagents.dev  # Mainnet
+```
+
+### Network Configuration
+
+```typescript
+// src/middleware/b402/config.ts
+const NETWORK_CONFIG = {
+  testnet: {
+    network: "bnb-testnet",
+    facilitatorUrl: "http://localhost:8080",
+    usdcAddress: "0x64544969ed7EBf5f083679233325356EbE738930",
+    usdtAddress: "0x337610d27c682E347C9cD60BD4b3b107C9d34dDd",
+    chainId: 97,
+    rpcUrl: "https://data-seed-prebsc-1-s1.binance.org:8545",
+    explorer: "https://testnet.bscscan.com",
+    relayerAddress: "0x62150F2c3A29fDA8bCf22c0F22Eb17270FCBb78A",
+  },
+  mainnet: {
+    network: "bnb",
+    facilitatorUrl: "https://facilitator.bioagents.dev",
+    usdcAddress: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d",
+    usdtAddress: "0x55d398326f99059fF775485246999027B3197955",
+    chainId: 56,
+    rpcUrl: "https://bsc-dataseed.binance.org",
+    explorer: "https://bscscan.com",
+    relayerAddress: "0xE1C2830d5DDd6B49E9c46EbE03a98Cb44CD8eA5a",
+  },
+};
+```
+
+### Adding b402 to Routes
+
+```typescript
+import { Elysia } from "elysia";
+import { b402Middleware } from "../middleware/b402/middleware";
+
+const app = new Elysia()
+  .use(b402Middleware({ enabled: true }))
+  .post("/api/b402/chat", async ({ request, body }) => {
+    // Access payment settlement
+    const settlement = (request as any).b402Settlement;
+    
+    if (settlement?.success) {
+      console.log("Payment verified:", settlement.transaction);
+    }
+    
+    return { message: "Chat response" };
+  });
+```
+
+### Route Pricing
+
+```typescript
+// src/middleware/b402/pricing.ts
+export const b402RoutePricing: B402RoutePricing[] = [
+  {
+    route: "/api/b402/chat",
+    priceUSD: "0.01",
+    description: "Chat API access via b402 payment (BNB Chain)",
+  },
+  {
+    route: "/api/b402/deep-research/start",
+    priceUSD: "0.025",
+    description: "Deep research initiation via b402 payment (BNB Chain)",
+  },
+];
+```
+
+## Whitelisting Users
+
+You can bypass payment requirements for specific users:
+
+```typescript
+import { authResolver } from "../middleware/authResolver";
+import { x402Middleware } from "../middleware/x402/middleware";
+
+const app = new Elysia()
+  .use(authResolver({ required: false }))  // Run auth first
+  .use(x402Middleware({ enabled: true }))
+  .post("/api/x402/chat", async ({ request, body }) => {
+    // If user is whitelisted, request.bypassX402 is set to true
+    // and payment check is skipped
+    
+    return { message: "Response" };
+  });
+```
+
+Whitelist logic in auth resolver:
+
+```typescript
+// In authResolver middleware
+const WHITELISTED_USERS = [
+  "user-uuid-1",
+  "user-uuid-2",
+];
+
+if (WHITELISTED_USERS.includes(userId)) {
+  (request as any).bypassX402 = true;
+  (request as any).bypassB402 = true;
+}
+```
+
+## Testing Payment Endpoints
+
+### Using x402 CLI (Testnet)
+
+```bash
+# Install x402 CLI
+npm install -g @x402/cli
+
+# Configure testnet
+x402 config set network base-sepolia
+x402 config set facilitator https://x402.org/facilitator
+
+# Make payment request
+x402 pay https://your-api.com/api/x402/chat \
+  --method POST \
+  --data '{"message": "Hello"}'
+```
+
+### Manual Testing
+
+```bash
+# 1. Request without payment
+curl -X POST https://your-api.com/api/x402/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello"}'
+
+# Returns 402 with PAYMENT-REQUIRED header
+
+# 2. Sign payment with wallet (use facilitator)
+# 3. Retry with PAYMENT-SIGNATURE header
+
+curl -X POST https://your-api.com/api/x402/chat \
+  -H "Content-Type: application/json" \
+  -H "PAYMENT-SIGNATURE: eyJ..." \
+  -d '{"message": "Hello"}'
+
+# Returns 200 with PAYMENT-RESPONSE header
+```
+
+## Pricing Strategy
+
+<Tip>
+Recommended pricing model:
+- **Free tier**: Core infrastructure (planning, knowledge base)
+- **Basic tier**: Enhanced features ($0.01-0.05)
+- **Premium tier**: Expensive external APIs ($0.10+)
+</Tip>
+
+### Example Pricing
+
+```typescript
+export const routePricing: RoutePricing[] = [
+  // Free status checks (no payment)
+  // { route: "/api/status", priceUSD: "0.00" },  // Don't add to pricing
+  
+  // Basic endpoints
+  {
+    route: "/api/x402/chat",
+    priceUSD: "0.01",
+    description: "Basic chat",
+  },
+  
+  // Advanced features
+  {
+    route: "/api/x402/agents/hypothesis",
+    priceUSD: "0.02",
+    description: "Advanced reasoning",
+  },
+  
+  // Premium features (external API costs)
+  {
+    route: "/api/x402/agents/analysis",
+    priceUSD: "0.025",
+    description: "Data analysis with external APIs",
+  },
+];
+```
+
+## Security Considerations
+
+<Warning>
+**Important Security Notes:**
+- Never store private keys in your application
+- Always verify payments on-chain before granting access
+- Use HTTPS in production to prevent MITM attacks
+- Validate payment amounts match your pricing
+- Implement rate limiting alongside payments
+</Warning>
+
+## Monitoring Payments
+
+Payment events are logged with structured data:
+
+```typescript
+// Successful payment
+logger.info(
+  {
+    path: "/api/x402/chat",
+    transaction: "0xabc...",
+    network: "eip155:8453",
+    payer: "0x123...",
+  },
+  "x402_v2_payment_settled"
+);
+
+// Failed payment
+logger.warn(
+  {
+    path: "/api/x402/chat",
+    reason: "Invalid signature",
+  },
+  "x402_v2_payment_invalid"
+);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Rate Limiting" icon="gauge" href="/advanced/rate-limiting">
+    Add rate limits to payment-gated endpoints
+  </Card>
+  <Card title="Custom Agents" icon="robot" href="/advanced/custom-agents">
+    Create custom agents with payment requirements
+  </Card>
+  <Card title="WebSockets" icon="signal-stream" href="/advanced/websockets">
+    Real-time notifications for payment events
+  </Card>
+  <Card title="API Routes" icon="route" href="/api/chat">
+    Explore available API endpoints
+  </Card>
+</CardGroup>

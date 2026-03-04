@@ -1,0 +1,494 @@
+---
+title: Docker Deployment
+description: Deploy BioAgents using Docker and docker-compose with production-ready configurations
+---
+
+BioAgents provides pre-configured Docker setups for both development and production deployments.
+
+## Quick Start
+
+### Prerequisites
+
+- Docker 20.10+
+- Docker Compose 2.0+
+- `.env` file with required credentials
+
+### Clone and Configure
+
+<Steps>
+  <Step title="Clone Repository">
+    ```bash
+    git clone https://github.com/bio-xyz/bioagents-agentkit.git
+    cd bioagents-agentkit
+    ```
+  </Step>
+  
+  <Step title="Configure Environment">
+    ```bash
+    cp .env.example .env
+    nano .env  # Edit with your credentials
+    ```
+    
+    **Required variables:**
+    - `OPENAI_API_KEY` - Your OpenAI API key
+    - `SUPABASE_URL` - Supabase project URL
+    - `SUPABASE_ANON_KEY` - Supabase anon key
+  </Step>
+  
+  <Step title="Start Services">
+    ```bash
+    docker compose up -d
+    ```
+  </Step>
+  
+  <Step title="Verify Deployment">
+    ```bash
+    curl http://localhost:3000/api/health
+    ```
+  </Step>
+</Steps>
+
+## Dockerfile
+
+The BioAgents Dockerfile is optimized for production deployments:
+
+```dockerfile
+FROM oven/bun:latest AS base
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  ca-certificates \
+  texlive-latex-base \
+  texlive-latex-extra \
+  texlive-fonts-recommended \
+  texlive-bibtex-extra \
+  texlive-xetex \
+  latexmk \
+  pandoc \
+  lmodern \
+  fonts-linuxlibertine \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install Supabase CLI
+ADD https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz /tmp/supabase.tar.gz
+RUN tar -xzf /tmp/supabase.tar.gz -C /usr/local/bin/ && \
+    chmod +x /usr/local/bin/supabase && \
+    rm /tmp/supabase.tar.gz
+
+# Install dependencies
+COPY package.json bun.lock* ./
+RUN bun install
+
+# Copy source and build
+COPY . .
+RUN cd client && bun run build
+RUN bun install --production
+
+# Expose port and run
+EXPOSE 3000
+ENV NODE_ENV=production
+USER bun
+
+CMD ["bun", "run", "src/index.ts"]
+```
+
+<Info>
+The Dockerfile includes LaTeX and Pandoc for paper generation features. These add ~500MB to the image size.
+</Info>
+
+## Docker Compose Configurations
+
+### Production (API + Worker + Redis)
+
+The default `docker-compose.yml` deploys a complete production stack:
+
+<CodeGroup>
+```yaml docker-compose.yml
+services:
+  # Database migrations
+  migrate:
+    build: .
+    container_name: bioagents-migrate
+    env_file:
+      - .env
+    volumes:
+      - supabase_tmp:/app/supabase/.temp
+    command: >
+      sh -lc '
+        set -eu
+        mkdir -p /app/supabase/.temp
+        supabase db push --db-url "$SUPABASE_FULL_URL"
+      '
+    restart: "no"
+
+  # API Server
+  bioagents:
+    build: .
+    container_name: bioagents-api
+    expose:
+      - "${PORT:-3000}"
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - bioagents-docs:/app/docs
+      - bioagents-images:/app/client/public/images
+    environment:
+      - USE_JOB_QUEUE=true
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+      - HOST=0.0.0.0
+      - NODE_ENV=production
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "run",
+          "-e",
+          "fetch('http://localhost:3000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: bioagents-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  supabase_tmp:
+  bioagents-docs:
+  bioagents-images:
+  redis-data:
+```
+</CodeGroup>
+
+### Key Features
+
+<AccordionGroup>
+  <Accordion title="Database Migrations">
+    The `migrate` service runs Supabase database migrations on startup using the Supabase CLI.
+    
+    ```bash
+    # Manually run migrations
+    docker compose run --rm migrate
+    ```
+  </Accordion>
+  
+  <Accordion title="Persistent Volumes">
+    - `bioagents-docs` - RAG knowledge documents
+    - `bioagents-images` - Generated figure images
+    - `redis-data` - Job queue persistence
+    - `supabase_tmp` - Migration temp files
+  </Accordion>
+  
+  <Accordion title="Health Checks">
+    - API server: HTTP GET `/api/health` every 30s
+    - Redis: `redis-cli ping` every 10s
+    - Worker: process check via `pgrep`
+  </Accordion>
+</AccordionGroup>
+
+## Common Commands
+
+### Start Services
+
+```bash
+# Start all services in background
+docker compose up -d
+
+# Start with build (after code changes)
+docker compose up -d --build
+
+# Start specific service
+docker compose up -d bioagents
+```
+
+### View Logs
+
+```bash
+# Follow all logs
+docker compose logs -f
+
+# Follow specific service
+docker compose logs -f bioagents
+docker compose logs -f worker
+docker compose logs -f redis
+
+# Last 100 lines
+docker compose logs --tail 100 bioagents
+```
+
+### Manage Services
+
+```bash
+# Stop all services
+docker compose down
+
+# Stop but keep volumes
+docker compose stop
+
+# Restart service
+docker compose restart bioagents
+
+# Check status
+docker compose ps
+```
+
+### Scale Workers
+
+```bash
+# Scale to 3 worker instances
+docker compose up -d --scale worker=3
+
+# Scale back down
+docker compose up -d --scale worker=1
+```
+
+<Info>
+Workers automatically share the Redis queue. No additional configuration needed for horizontal scaling.
+</Info>
+
+### Access Containers
+
+```bash
+# Open shell in API server
+docker compose exec bioagents sh
+
+# Open shell in worker
+docker compose exec worker sh
+
+# Run Redis CLI
+docker compose exec redis redis-cli
+```
+
+## Environment Variables
+
+### LLM Configuration
+
+```bash
+# Required: At least one LLM provider
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=AIza...
+
+# LLM model selection
+REPLY_LLM_PROVIDER=openai
+REPLY_LLM_MODEL=gpt-5
+HYP_LLM_PROVIDER=google
+HYP_LLM_MODEL=gemini-2.5-pro
+PLANNING_LLM_PROVIDER=anthropic
+PLANNING_LLM_MODEL=claude-sonnet-4-5
+```
+
+### Database
+
+```bash
+# Supabase configuration
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_KEY=eyJ...  # Optional, for admin ops
+
+# For migrations
+SUPABASE_FULL_URL=postgresql://postgres:password@db.your-project.supabase.co:5432/postgres
+```
+
+### Job Queue
+
+```bash
+# Enable queue mode
+USE_JOB_QUEUE=true
+
+# Redis connection (auto-configured in docker-compose)
+REDIS_URL=redis://redis:6379
+
+# Worker concurrency
+CHAT_QUEUE_CONCURRENCY=5
+DEEP_RESEARCH_QUEUE_CONCURRENCY=3
+```
+
+### Vector Search
+
+```bash
+# Embedding configuration
+EMBEDDING_PROVIDER=openai
+TEXT_EMBEDDING_MODEL=text-embedding-3-large
+
+# RAG settings
+CHUNK_SIZE=2000
+CHUNK_OVERLAP=200
+VECTOR_SEARCH_LIMIT=20
+RERRANK_FINAL_LIMIT=5
+USE_RERANKING=true
+SIMILARITY_THRESHOLD=0.45
+```
+
+## Worker-Only Deployment
+
+For multi-server deployments, deploy workers separately using `docker-compose.worker.yml`:
+
+<CodeGroup>
+```yaml docker-compose.worker.yml
+services:
+  worker:
+    build: .
+    command: ["bun", "run", "src/worker.ts"]
+    environment:
+      - USE_JOB_QUEUE=true
+      - REDIS_URL=${REDIS_URL}  # External Redis (e.g., Upstash)
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - NODE_ENV=production
+    env_file:
+      - .env
+    restart: unless-stopped
+    stop_grace_period: 8h  # Allow long-running jobs to complete
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+```
+
+```bash Deploy Workers
+# Start 2 workers
+docker-compose -f docker-compose.worker.yml up -d --scale worker=2
+
+# View logs
+docker-compose -f docker-compose.worker.yml logs -f
+
+# Scale up
+docker-compose -f docker-compose.worker.yml up -d --scale worker=5
+```
+</CodeGroup>
+
+<Warning>
+Worker containers use `stop_grace_period: 8h` to allow deep research jobs (which can run for hours) to complete gracefully during shutdown.
+</Warning>
+
+## Troubleshooting
+
+### Container Won't Start
+
+**Check logs:**
+```bash
+docker compose logs bioagents
+```
+
+**Common issues:**
+- Missing environment variables → Check `.env` file
+- Port already in use → Change `PORT` in `.env`
+- Database connection failed → Verify Supabase credentials
+
+### Redis Connection Errors
+
+**Verify Redis is running:**
+```bash
+docker compose ps redis
+docker compose exec redis redis-cli ping  # Should return PONG
+```
+
+**Check connection from API:**
+```bash
+docker compose exec bioagents sh
+$ env | grep REDIS
+```
+
+### Worker Not Processing Jobs
+
+**Check worker logs:**
+```bash
+docker compose logs -f worker
+```
+
+**Verify queue connection:**
+```bash
+# Check waiting jobs
+docker compose exec redis redis-cli LLEN bull:chat:waiting
+docker compose exec redis redis-cli LLEN bull:deep-research:waiting
+```
+
+### High Memory Usage
+
+**Check container stats:**
+```bash
+docker stats bioagents worker
+```
+
+**Reduce concurrency:**
+```bash
+# In .env
+CHAT_QUEUE_CONCURRENCY=2
+DEEP_RESEARCH_QUEUE_CONCURRENCY=1
+```
+
+**Limit container memory:**
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 1G
+```
+
+### Build Failures
+
+**Clear build cache:**
+```bash
+docker compose build --no-cache
+```
+
+**Check disk space:**
+```bash
+df -h
+docker system df
+```
+
+**Prune unused images:**
+```bash
+docker system prune -a
+```
+
+## Production Checklist
+
+<Check>
+- [ ] Environment variables configured in `.env`
+- [ ] Database migrations applied
+- [ ] Redis persistence enabled (`appendonly yes`)
+- [ ] Health checks configured
+- [ ] Log aggregation set up
+- [ ] Resource limits configured
+- [ ] Backup strategy for volumes
+- [ ] Monitoring/alerting configured
+- [ ] SSL/TLS termination (via reverse proxy)
+- [ ] Rate limiting enabled
+</Check>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Job Queue" icon="list-check" href="/deployment/job-queue">
+    Configure BullMQ for reliable background processing
+  </Card>
+  <Card title="Horizontal Scaling" icon="arrows-up-to-line" href="/deployment/scaling">
+    Scale workers across multiple servers
+  </Card>
+</CardGroup>

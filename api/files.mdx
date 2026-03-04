@@ -1,0 +1,284 @@
+---
+title: 'File Upload API'
+description: 'Direct-to-S3 file upload with presigned URLs'
+---
+
+## Overview
+
+The File Upload API enables secure, direct-to-S3 file uploads using presigned URLs. This two-step process ensures files are uploaded securely without exposing credentials.
+
+## Authentication
+
+All endpoints require authentication via one of:
+- JWT token in `Authorization` header
+- API key in `X-API-Key` header
+- x402/b402 payment proof
+- Development mode: `userId` in request body
+
+## Upload Flow
+
+1. **Request Upload URL**: Call `POST /api/files/upload-url` to get a presigned URL
+2. **Upload to S3**: Use the presigned URL to upload your file directly to S3
+3. **Confirm Upload**: Call `POST /api/files/confirm` to trigger file processing
+4. **Check Status**: Poll `GET /api/files/:fileId/status` to monitor processing
+
+## Endpoints
+
+### Request Upload URL
+
+<ParamField path="POST /api/files/upload-url" type="endpoint">
+  Request a presigned URL for direct S3 upload
+</ParamField>
+
+**Request Body**
+
+```json
+{
+  "filename": "dataset.csv",
+  "contentType": "text/csv",
+  "size": 1048576,
+  "conversationId": "uuid" // optional
+}
+```
+
+<ParamField body="filename" type="string" required>
+  Name of the file to upload (minimum 1 character)
+</ParamField>
+
+<ParamField body="contentType" type="string" required>
+  MIME type of the file (e.g., `text/csv`, `application/pdf`)
+</ParamField>
+
+<ParamField body="size" type="number" required>
+  File size in bytes (minimum 1 byte)
+</ParamField>
+
+<ParamField body="conversationId" type="string">
+  Optional conversation ID to associate this file with
+</ParamField>
+
+**Response**
+
+```json
+{
+  "fileId": "uuid",
+  "uploadUrl": "https://s3.amazonaws.com/...",
+  "expiresAt": "2024-01-01T12:00:00Z"
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/files/upload-url \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "dataset.csv",
+    "contentType": "text/csv",
+    "size": 1048576
+  }'
+```
+
+---
+
+### Upload File to S3
+
+Once you have the presigned URL, upload your file directly to S3:
+
+```bash
+curl -X PUT "PRESIGNED_URL_FROM_PREVIOUS_STEP" \
+  -H "Content-Type: text/csv" \
+  --data-binary @dataset.csv
+```
+
+---
+
+### Confirm Upload
+
+<ParamField path="POST /api/files/confirm" type="endpoint">
+  Confirm upload completion and start file processing
+</ParamField>
+
+**Request Body**
+
+```json
+{
+  "fileId": "uuid"
+}
+```
+
+<ParamField body="fileId" type="string" required>
+  File ID returned from the upload URL request
+</ParamField>
+
+**Response**
+
+```json
+{
+  "fileId": "uuid",
+  "status": "processing",
+  "filename": "dataset.csv",
+  "size": 1048576
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/files/confirm \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fileId": "YOUR_FILE_ID"
+  }'
+```
+
+---
+
+### Check File Status
+
+<ParamField path="GET /api/files/:fileId/status" type="endpoint">
+  Check file processing status
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="fileId" type="string" required>
+  File ID to check status for
+</ParamField>
+
+**Response**
+
+```json
+{
+  "fileId": "uuid",
+  "status": "completed",
+  "filename": "dataset.csv",
+  "size": 1048576,
+  "description": "CSV file with 1000 rows",
+  "error": null,
+  "createdAt": "2024-01-01T12:00:00Z",
+  "updatedAt": "2024-01-01T12:01:00Z"
+}
+```
+
+**Status Values**
+- `pending`: File uploaded, awaiting processing
+- `processing`: File is being processed
+- `completed`: File processed successfully
+- `failed`: Processing failed (see `error` field)
+
+**cURL Example**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/files/FILE_ID/status \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+### Delete File
+
+<ParamField path="DELETE /api/files/:fileId" type="endpoint">
+  Delete a file and its metadata
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="fileId" type="string" required>
+  File ID to delete
+</ParamField>
+
+**Response**
+
+```json
+{
+  "success": true
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X DELETE https://api.bioagents.ai/api/files/FILE_ID \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+---
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### 404 Not Found
+
+```json
+{
+  "error": "File not found"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error": "Failed to generate upload URL"
+}
+```
+
+---
+
+## Complete Example
+
+```bash
+# Step 1: Request upload URL
+RESPONSE=$(curl -X POST https://api.bioagents.ai/api/files/upload-url \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filename": "data.csv",
+    "contentType": "text/csv",
+    "size": 1048576
+  }')
+
+# Extract fileId and uploadUrl
+FILE_ID=$(echo $RESPONSE | jq -r '.fileId')
+UPLOAD_URL=$(echo $RESPONSE | jq -r '.uploadUrl')
+
+# Step 2: Upload file to S3
+curl -X PUT "$UPLOAD_URL" \
+  -H "Content-Type: text/csv" \
+  --data-binary @data.csv
+
+# Step 3: Confirm upload
+curl -X POST https://api.bioagents.ai/api/files/confirm \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"fileId": "'$FILE_ID'"}'
+
+# Step 4: Check status (poll until completed)
+curl -X GET https://api.bioagents.ai/api/files/$FILE_ID/status \
+  -H "Authorization: Bearer $JWT_TOKEN"
+```
+
+---
+
+## Rate Limits
+
+- Maximum file size: Configured per deployment
+- Upload URL expiration: 1 hour
+- Processing timeout: Varies by file type and size
+
+## Security
+
+- Presigned URLs are time-limited and single-use
+- Users can only access their own files
+- Path traversal protection is enforced
+- All uploads are validated before processing

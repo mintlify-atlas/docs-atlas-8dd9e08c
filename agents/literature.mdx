@@ -1,0 +1,228 @@
+---
+title: "Literature Agent"
+description: "Search scientific literature across multiple backends"
+icon: "book-open"
+---
+
+The Literature Agent searches scientific literature and synthesizes findings with inline citations. It supports multiple backends including OpenScholar, BioLit, Edison, and custom knowledge bases.
+
+## Function Signature
+
+```typescript
+// src/agents/literature/index.ts
+export async function literatureAgent(input: {
+  objective: string;
+  type: LiteratureType;
+  onPollUpdate?: OnPollUpdate;
+}): Promise<LiteratureResult>;
+
+type LiteratureType = "OPENSCHOLAR" | "KNOWLEDGE" | "EDISON" | "BIOLIT" | "BIOLITDEEP";
+
+type LiteratureResult = {
+  objective: string;
+  output: string;
+  count?: number;          // Number of sources found
+  jobId?: string;          // External job ID for polling
+  reasoning?: string[];    // Real-time reasoning trace
+  start: string;
+  end: string;
+};
+```
+
+## Backends
+
+### OpenScholar
+
+General scientific literature search with high-quality citations.
+
+```typescript
+const result = await literatureAgent({
+  objective: "What are the mechanisms of cellular senescence?",
+  type: "OPENSCHOLAR"
+});
+```
+
+**Configuration:**
+```bash
+OPENSCHOLAR_API_URL=https://your-openscholar-api
+OPENSCHOLAR_API_KEY=your_key
+```
+
+See [OpenScholar deployment](https://github.com/bio-xyz/bio-openscholar) for setup.
+
+### BioLit
+
+BioAgents Literature API with semantic search and LLM reranking.
+
+<Tabs>
+  <Tab title="Fast Mode">
+    Quick literature search for simple queries:
+    
+    ```typescript
+    const result = await literatureAgent({
+      objective: "Effects of rapamycin on aging",
+      type: "BIOLIT"
+    });
+    ```
+  </Tab>
+  
+  <Tab title="Deep Mode">
+    Comprehensive search with multi-hop reasoning:
+    
+    ```typescript
+    const result = await literatureAgent({
+      objective: "Molecular pathways connecting mTOR inhibition to longevity",
+      type: "BIOLITDEEP",
+      onPollUpdate: (update) => {
+        console.log(update.reasoning); // Real-time trace
+      }
+    });
+    ```
+  </Tab>
+</Tabs>
+
+**Configuration:**
+```bash
+PRIMARY_LITERATURE_AGENT=bio
+BIO_LIT_AGENT_API_URL=https://your-biolit-api
+BIO_LIT_AGENT_API_KEY=your_key
+```
+
+### Knowledge Base
+
+Search your custom knowledge base using vector search with Cohere reranking.
+
+```typescript
+const result = await literatureAgent({
+  objective: "Internal research on protein folding",
+  type: "KNOWLEDGE"
+});
+```
+
+**Setup:**
+
+<Steps>
+  <Step title="Add documents">
+    Place PDF, DOCX, or Markdown files in `docs/` directory
+  </Step>
+  
+  <Step title="Configure embeddings">
+    Set embedding provider in `.env`:
+    ```bash
+    EMBEDDING_PROVIDER=openai
+    TEXT_EMBEDDING_MODEL=text-embedding-3-large
+    ```
+  </Step>
+  
+  <Step title="Enable reranking">
+    Configure Cohere for better results:
+    ```bash
+    COHERE_API_KEY=your_key
+    USE_RERANKING=true
+    RERANK_FINAL_LIMIT=5
+    ```
+  </Step>
+</Steps>
+
+See [Knowledge Base](/features/knowledge-base) for details.
+
+### Edison
+
+Deep literature search via Edison AI agent (deep research mode only).
+
+```typescript
+const result = await literatureAgent({
+  objective: "Recent advances in CRISPR gene editing",
+  type: "EDISON"
+});
+```
+
+**Configuration:**
+```bash
+EDISON_API_URL=https://your-edison-api
+EDISON_API_KEY=your_key
+```
+
+See [Edison deployment](https://github.com/bio-xyz/bio-edison-api).
+
+## Output Format
+
+The agent returns synthesized findings with inline citations in the format:
+
+```
+(claim)[DOI or URL]
+```
+
+**Example:**
+```
+(Rapamycin extends lifespan in mice by up to 60%)[10.1038/nature.2009.1234]
+(The mechanism involves mTOR pathway inhibition)[https://example.com/paper]
+```
+
+## Usage Example
+
+```typescript
+// src/routes/chat.ts
+const completedTasks: PlanTask[] = [];
+
+for (const task of literatureTasks) {
+  const result = await literatureAgent({
+    objective: task.objective,
+    type: "OPENSCHOLAR"
+  });
+  
+  task.output = result.output;
+  task.start = result.start;
+  task.end = result.end;
+  
+  completedTasks.push(task);
+}
+```
+
+## Configuration
+
+<ParamField path="OPENSCHOLAR_API_URL" type="string">
+  OpenScholar API base URL (optional)
+</ParamField>
+
+<ParamField path="OPENSCHOLAR_API_KEY" type="string">
+  OpenScholar API key (optional)
+</ParamField>
+
+<ParamField path="PRIMARY_LITERATURE_AGENT" type="string" default="openscholar">
+  Primary agent: `bio`, `openscholar`, or `edison`
+</ParamField>
+
+<ParamField path="BIO_LIT_AGENT_API_URL" type="string">
+  BioLit API base URL (when PRIMARY_LITERATURE_AGENT=bio)
+</ParamField>
+
+<ParamField path="BIO_LIT_AGENT_API_KEY" type="string">
+  BioLit API key (when PRIMARY_LITERATURE_AGENT=bio)
+</ParamField>
+
+<ParamField path="EDISON_API_URL" type="string">
+  Edison API base URL (optional)
+</ParamField>
+
+<ParamField path="EDISON_API_KEY" type="string">
+  Edison API key (optional)
+</ParamField>
+
+<ParamField path="KNOWLEDGE_DOCS_PATH" type="string" default="docs">
+  Path to knowledge base documents
+</ParamField>
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Knowledge Base" icon="database" href="/features/knowledge-base">
+    Set up vector search
+  </Card>
+  <Card title="Planning Agent" icon="list-check" href="/agents/planning">
+    Generates literature tasks
+  </Card>
+  <Card title="Deep Research" icon="flask" href="/concepts/deep-research">
+    Iterative research cycle
+  </Card>
+</CardGroup>

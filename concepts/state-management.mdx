@@ -1,0 +1,583 @@
+---
+title: 'State Management'
+description: 'Understanding State vs ConversationState'
+icon: 'database'
+---
+
+## Overview
+
+BioAgents uses two distinct state types to manage data flow through the research workflow:
+
+1. **Message State** (`State`) - Ephemeral, tied to a single message
+2. **Conversation State** (`ConversationState`) - Persistent across entire conversation
+
+<Warning>
+Understanding this distinction is critical for building agents and extending the system.
+</Warning>
+
+## State Types
+
+### Message State (`State`)
+
+**Location**: `src/types/core.ts:115`
+
+**Purpose**: Ephemeral data for processing a single message
+
+**Lifecycle**: Created at message start, cleared after processing
+
+**Definition**:
+```typescript
+type State = {
+  id?: string; // Database row ID
+  values: StateValues;
+};
+
+interface StateValues {
+  // Request metadata
+  messageId?: string;
+  conversationId?: string;
+  userId?: string;
+  source?: string;
+  isDeepResearch?: boolean;
+
+  // Action responses
+  finalResponse?: string; // Final text from REPLY or HYPOTHESIS
+  thought?: string;
+
+  // Step tracking
+  steps?: Record<string, { start: number; end?: number }>;
+}
+```
+
+**Usage**:
+```typescript
+const state: State = {
+  id: stateRecord.id,
+  values: {
+    messageId: createdMessage.id,
+    conversationId: createdMessage.conversation_id,
+    userId: createdMessage.user_id,
+    source: createdMessage.source,
+    isDeepResearch: true
+  }
+};
+```
+
+**Key Characteristics**:
+- Short-lived (duration of single message)
+- Not shared across iterations
+- Used for temporary processing data
+- Minimal persistence in database
+
+---
+
+### Conversation State (`ConversationState`)
+
+**Location**: `src/types/core.ts:120`
+
+**Purpose**: Persistent research data across entire conversation
+
+**Lifecycle**: Created with conversation, persists indefinitely
+
+**Definition**:
+```typescript
+type ConversationState = {
+  id?: string; // Database row ID
+  values: ConversationStateValues;
+};
+
+interface ConversationStateValues extends StateValues {
+  // Deep research run tracking
+  deepResearchRun?: {
+    isRunning: boolean;
+    rootMessageId: string;
+    stateId: string;
+    mode: "queue" | "in-process";
+    jobId?: string;
+    startedAt: string;
+    lastHeartbeatAt: string;
+    expiresAt: string;
+    lastResult?: "completed" | "failed" | "stale_recovered";
+    lastError?: string;
+    endedAt?: string;
+  };
+
+  // Core objectives
+  objective: string; // Initial research question
+  currentObjective?: string; // Current iteration objective
+  evolvingObjective?: string; // Slowly-evolving high-level direction
+  conversationTitle?: string; // Concise title (updated by reflection)
+  
+  // Accumulated knowledge
+  keyInsights?: string[]; // Key findings across iterations
+  methodology?: string; // Research methodology
+  currentHypothesis?: string; // Current hypothesis with citations
+  discoveries?: Discovery[]; // Novel claims with evidence links
+  
+  // Task tracking
+  plan?: PlanTask[]; // All executed tasks (with levels)
+  suggestedNextSteps?: PlanTask[]; // Suggestions for next iteration
+  currentLevel?: number; // Current iteration level (for UI)
+  
+  // Research mode
+  researchMode?: "semi-autonomous" | "fully-autonomous" | "steering";
+  
+  // Datasets
+  uploadedDatasets?: Array<{
+    filename: string;
+    id: string;
+    description: string;
+    path?: string;
+    content?: string; // Parsed preview
+    size?: number;
+  }>;
+
+  // Clarification context (optional)
+  clarificationContext?: {
+    sessionId: string;
+    refinedObjective: string;
+    questionsAndAnswers: Array<{
+      question: string;
+      answer: string;
+    }>;
+    initialTasks?: Array<{
+      objective: string;
+      type: "LITERATURE" | "ANALYSIS";
+      datasetFilenames: string[];
+    }>;
+  };
+}
+```
+
+**Usage**:
+```typescript
+const conversationState: ConversationState = {
+  id: conversationStateRecord.id,
+  values: {
+    objective: "Investigate caloric restriction mechanisms",
+    currentObjective: "Validate autophagy pathway activation",
+    keyInsights: [
+      "mTOR suppression is central to CR benefits",
+      "Autophagy genes show coordinated upregulation"
+    ],
+    currentHypothesis: "Caloric restriction extends lifespan through...",
+    discoveries: [...],
+    plan: [...],
+    uploadedDatasets: [...],
+    currentLevel: 2,
+    researchMode: "semi-autonomous"
+  }
+};
+```
+
+**Key Characteristics**:
+- Long-lived (entire conversation)
+- Shared across all iterations
+- Contains accumulated research knowledge
+- Primary state for research workflow
+
+---
+
+## State vs ConversationState Comparison
+
+| Feature | State | ConversationState |
+|---------|-------|-------------------|
+| **Lifecycle** | Single message | Entire conversation |
+| **Persistence** | Temporary | Permanent |
+| **Scope** | Current request | All iterations |
+| **Purpose** | Processing metadata | Research knowledge |
+| **Database** | `states` table | `conversation_states` table |
+| **Size** | Small (~100 bytes) | Large (KB-MB) |
+| **Updates** | Rarely persisted | Frequently updated |
+
+## Database Schema
+
+### States Table
+
+```sql
+CREATE TABLE states (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  values JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+**Purpose**: Store ephemeral message state
+
+**Retention**: Can be cleaned up after message processing
+
+---
+
+### Conversation States Table
+
+```sql
+CREATE TABLE conversation_states (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  conversation_id UUID NOT NULL REFERENCES conversations(id),
+  values JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+**Purpose**: Store persistent conversation state
+
+**Retention**: Permanent (contains research knowledge)
+
+**Indexing**: Indexed on `conversation_id` for fast lookup
+
+---
+
+## State Updates
+
+### Reading State
+
+```typescript
+import { getConversationState } from "../../db/operations";
+
+// Read conversation state
+const conversationStateRecord = await getConversationState(conversationStateId);
+
+const conversationState: ConversationState = {
+  id: conversationStateRecord.id,
+  values: conversationStateRecord.values
+};
+```
+
+### Updating Conversation State
+
+```typescript
+import { updateConversationState } from "../../db/operations";
+
+// Modify conversation state
+conversationState.values.currentHypothesis = hypothesisResult.hypothesis;
+conversationState.values.keyInsights = reflectionResult.keyInsights;
+
+// Persist to database
+if (conversationState.id) {
+  await updateConversationState(
+    conversationState.id,
+    conversationState.values
+  );
+}
+```
+
+### Serialized Updates (Prevent Overwrites)
+
+When multiple concurrent operations update state, use serialized writes:
+
+```typescript
+// From src/routes/deep-research/start.ts:1062
+let stateWriteChain = Promise.resolve();
+
+const writeStateSerialized = async () => {
+  const p = stateWriteChain.then(() =>
+    updateConversationState(
+      conversationState.id!,
+      conversationState.values
+    )
+  );
+  stateWriteChain = p.catch(() => {}); // Prevent blocking
+  return p;
+};
+
+// Usage in parallel tasks
+task.reasoning = reasoning;
+await writeStateSerialized();
+```
+
+**Why**: Prevents race conditions where concurrent updates overwrite each other's changes
+
+---
+
+## Agent State Updates
+
+Each agent has specific state update responsibilities:
+
+| Agent | Updates | State Type |
+|-------|---------|------------|
+| **File Upload** | `uploadedDatasets[]` | ConversationState |
+| **Planning** | Returns plan (caller updates) | None (returns data) |
+| **Literature** | Returns output (caller updates task) | None (returns data) |
+| **Analysis** | Returns output + artifacts (caller updates task) | None (returns data) |
+| **Hypothesis** | `currentHypothesis` | ConversationState |
+| **Reflection** | `currentObjective`, `keyInsights`, `methodology`, `conversationTitle` | ConversationState |
+| **Discovery** | `discoveries[]` | ConversationState |
+| **Reply** | Returns text (caller updates message) | None (returns data) |
+
+<Info>
+Most agents return data without directly mutating state. This prevents conflicts and maintains clear causality.
+</Info>
+
+---
+
+## Real-world Example
+
+Here's how state flows through a deep research iteration:
+
+```typescript
+// Step 0: Initialize states
+const state: State = {
+  id: stateRecord.id,
+  values: {
+    messageId: createdMessage.id,
+    conversationId: conversationId,
+    userId: userId,
+    source: "api",
+    isDeepResearch: true
+  }
+};
+
+const conversationState: ConversationState = {
+  id: conversationStateRecord.id,
+  values: {
+    objective: "Investigate CR mechanisms",
+    currentObjective: "Literature review",
+    keyInsights: [],
+    plan: [],
+    uploadedDatasets: []
+  }
+};
+
+// Step 1: File Upload Agent
+const fileResult = await fileUploadAgent({
+  conversationState,
+  files,
+  userId
+});
+// Updates: conversationState.values.uploadedDatasets
+
+// Step 2: Planning Agent
+const planningResult = await planningAgent({
+  state,
+  conversationState,
+  message: createdMessage,
+  mode: "initial"
+});
+// Returns: plan (caller updates conversationState.values.plan)
+conversationState.values.plan = planningResult.plan;
+conversationState.values.currentObjective = planningResult.currentObjective;
+await updateConversationState(conversationState.id, conversationState.values);
+
+// Step 3: Execute Tasks
+for (const task of conversationState.values.plan) {
+  const result = await literatureAgent({ objective: task.objective });
+  task.output = result.output; // Update task in plan
+}
+await updateConversationState(conversationState.id, conversationState.values);
+
+// Step 4: Hypothesis Agent
+const hypothesisResult = await hypothesisAgent({
+  objective: conversationState.values.currentObjective,
+  message: createdMessage,
+  conversationState,
+  completedTasks: conversationState.values.plan
+});
+conversationState.values.currentHypothesis = hypothesisResult.hypothesis;
+await updateConversationState(conversationState.id, conversationState.values);
+
+// Step 5: Reflection Agent
+const reflectionResult = await reflectionAgent({
+  conversationState,
+  message: createdMessage,
+  completedMaxTasks: conversationState.values.plan,
+  hypothesis: hypothesisResult.hypothesis
+});
+conversationState.values.keyInsights = reflectionResult.keyInsights;
+conversationState.values.currentObjective = reflectionResult.currentObjective;
+conversationState.values.methodology = reflectionResult.methodology;
+await updateConversationState(conversationState.id, conversationState.values);
+
+// Step 6: Discovery Agent
+const discoveryResult = await discoveryAgent({
+  conversationState,
+  message: createdMessage,
+  tasksToConsider: conversationState.values.plan,
+  hypothesis: hypothesisResult.hypothesis
+});
+conversationState.values.discoveries = discoveryResult.discoveries;
+await updateConversationState(conversationState.id, conversationState.values);
+
+// Step 7: Reply Agent
+const replyText = await replyAgent({
+  conversationState,
+  message: createdMessage,
+  // ... other params
+});
+// No state update - reply goes to message.content
+
+// Final: Update message with reply
+await updateMessage(createdMessage.id, { content: replyText });
+```
+
+**Key Points**:
+1. `State` is used for request metadata (messageId, userId)
+2. `ConversationState` accumulates research knowledge
+3. Agents read state, return data, caller updates state
+4. State is persisted after each major update
+
+---
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use ConversationState for Research Data" icon="database">
+    All accumulated knowledge (insights, discoveries, hypotheses) belongs in ConversationState
+  </Card>
+  <Card title="Use State for Request Metadata" icon="file">
+    Temporary processing data (messageId, source) belongs in State
+  </Card>
+  <Card title="Persist After Major Updates" icon="floppy-disk">
+    Call updateConversationState() after each agent that modifies research data
+  </Card>
+  <Card title="Serialize Concurrent Writes" icon="lock">
+    Use serialized write pattern to prevent race conditions in parallel tasks
+  </Card>
+</CardGroup>
+
+## Common Patterns
+
+### Pattern 1: Agent Returns Data (No Direct State Mutation)
+
+```typescript
+// Agent implementation
+export async function myAgent(input: {
+  conversationState: ConversationState;
+  message: Message;
+}): Promise<{ result: string }> {
+  // Read state
+  const insights = conversationState.values.keyInsights || [];
+  
+  // Process...
+  const result = await processData(insights);
+  
+  // Return data (don't mutate state)
+  return { result };
+}
+
+// Caller updates state
+const agentResult = await myAgent({ conversationState, message });
+conversationState.values.myField = agentResult.result;
+await updateConversationState(conversationState.id, conversationState.values);
+```
+
+### Pattern 2: Agent Updates Specific Fields
+
+```typescript
+// Agent implementation (hypothesis, reflection, discovery)
+export async function hypothesisAgent(input: {
+  conversationState: ConversationState;
+  // ...
+}): Promise<{ hypothesis: string; mode: string }> {
+  // Generate hypothesis
+  const hypothesis = await generateHypothesis(...);
+  
+  // Return for caller to update
+  return { hypothesis, mode: "create" };
+}
+
+// Caller updates designated field
+const hypothesisResult = await hypothesisAgent({ ... });
+conversationState.values.currentHypothesis = hypothesisResult.hypothesis;
+await updateConversationState(conversationState.id, conversationState.values);
+```
+
+### Pattern 3: Real-time Updates During Execution
+
+```typescript
+// Setup serialized write chain
+let stateWriteChain = Promise.resolve();
+const writeStateSerialized = async () => {
+  const p = stateWriteChain.then(() =>
+    updateConversationState(conversationState.id!, conversationState.values)
+  );
+  stateWriteChain = p.catch(() => {});
+  return p;
+};
+
+// Callback for real-time updates
+const onPollUpdate = async ({ reasoning }) => {
+  task.reasoning = reasoning;
+  await writeStateSerialized();
+  await notifyStateUpdated(jobId, conversationId, conversationState.id);
+};
+
+// Execute agent with callback
+const result = await analysisAgent({
+  objective: task.objective,
+  datasets: task.datasets,
+  onPollUpdate
+});
+```
+
+---
+
+## Database Operations
+
+### Create Conversation State
+
+```typescript
+import { createConversationState } from "../../db/operations";
+
+const conversationStateRecord = await createConversationState({
+  conversation_id: conversationId,
+  values: {
+    objective: initialObjective,
+    keyInsights: [],
+    discoveries: [],
+    plan: [],
+    uploadedDatasets: []
+  }
+});
+```
+
+### Read Conversation State
+
+```typescript
+import { getConversationState } from "../../db/operations";
+
+const conversationStateRecord = await getConversationState(conversationStateId);
+```
+
+### Update Conversation State
+
+```typescript
+import { updateConversationState } from "../../db/operations";
+
+await updateConversationState(
+  conversationStateId,
+  conversationState.values
+);
+```
+
+### Real-time Notifications
+
+```typescript
+import { notifyStateUpdated } from "../../services/queue/notify";
+
+// Notify WebSocket clients of state update
+await notifyStateUpdated(
+  jobId,
+  conversationId,
+  conversationStateId
+);
+```
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Multi-agent system overview
+  </Card>
+  <Card title="Agents" icon="robot" href="/concepts/agents">
+    Individual agent implementations
+  </Card>
+  <Card title="Deep Research" icon="flask" href="/concepts/deep-research">
+    Deep research workflow
+  </Card>
+  <Card title="Environment Config" icon="cog" href="/configuration/environment">
+    Configuration reference
+  </Card>
+</CardGroup>

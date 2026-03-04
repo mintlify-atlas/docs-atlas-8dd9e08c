@@ -1,0 +1,261 @@
+---
+title: "Analysis Agent"
+description: "Perform data analysis on uploaded datasets"
+icon: "chart-line"
+---
+
+The Analysis Agent performs data analysis on uploaded datasets using either Edison AI or BioAgents Data Analysis backends. It executes code, generates visualizations, and returns results with artifacts.
+
+## Function Signature
+
+```typescript
+// src/agents/analysis/index.ts
+export async function analysisAgent(input: {
+  objective: string;
+  datasets: Dataset[];
+  type: AnalysisType;
+  userId: string;
+  conversationStateId: string;
+  onPollUpdate?: OnPollUpdate;
+}): Promise<AnalysisResult>;
+
+type AnalysisType = "EDISON" | "BIO";
+
+type Dataset = {
+  filename: string;
+  id: string;
+  description: string;
+  content?: Buffer;
+  path?: string;
+};
+
+type AnalysisResult = {
+  objective: string;
+  output: string;
+  jobId?: string;
+  reasoning?: string[];
+  start?: string;
+  end?: string;
+  artifacts?: Array<AnalysisArtifact>;
+};
+```
+
+## Backends
+
+### Edison (Default)
+
+Deep analysis via Edison AI agent with automatic file upload.
+
+```typescript
+const result = await analysisAgent({
+  objective: "Analyze gene expression patterns and identify key regulators",
+  datasets: [
+    {
+      filename: "expression_data.csv",
+      id: "dataset-123",
+      description: "RNA-seq gene expression matrix",
+      content: buffer
+    }
+  ],
+  type: "EDISON",
+  userId: "user-456",
+  conversationStateId: "conv-789"
+});
+```
+
+**Configuration:**
+```bash
+EDISON_API_URL=https://your-edison-api
+EDISON_API_KEY=your_key
+EDISON_TASK_TIMEOUT_MINUTES=30
+```
+
+See [Edison deployment](https://github.com/bio-xyz/bio-edison-api).
+
+### BIO
+
+BioAgents Data Analysis Agent with state-of-the-art performance.
+
+```typescript
+const result = await analysisAgent({
+  objective: "Perform statistical analysis of metabolite concentrations",
+  datasets: [
+    {
+      filename: "metabolites.xlsx",
+      id: "dataset-456",
+      description: "Metabolomics data from mass spectrometry",
+      path: "uploads/metabolites.xlsx"
+    }
+  ],
+  type: "BIO",
+  userId: "user-456",
+  conversationStateId: "conv-789",
+  onPollUpdate: (update) => {
+    console.log(update.reasoning); // Real-time trace
+  }
+});
+```
+
+**Configuration:**
+```bash
+PRIMARY_ANALYSIS_AGENT=bio
+DATA_ANALYSIS_API_URL=https://your-analysis-api
+DATA_ANALYSIS_API_KEY=your_key
+BIO_ANALYSIS_TASK_TIMEOUT_MINUTES=60
+```
+
+See [BioAgents Data Analysis](https://github.com/bio-xyz/bio-data-analysis).
+
+## Benchmark Performance
+
+BioAgents Analysis Agent achieves state-of-the-art performance on BixBench:
+
+| Evaluation Mode | Score |
+|-----------------|-------|
+| Open-Answer | **48.78%** |
+| Multiple-Choice (with refusal) | **55.12%** |
+| Multiple-Choice (without refusal) | **64.39%** |
+
+Outperforms Kepler, GPT-5, and others across all modes. See [research paper](https://arxiv.org/abs/2601.12542).
+
+## Output Format
+
+The agent returns:
+- **output**: Synthesized analysis results with inline citations
+- **artifacts**: Generated files (plots, tables, code)
+- **jobId**: External job ID for tracking
+- **reasoning**: Real-time reasoning trace (BIO backend only)
+
+### Example Response
+
+```json
+{
+  "objective": "Analyze gene expression",
+  "output": "Analysis identified 342 differentially expressed genes (FDR < 0.05). Key regulators include TP53 and MYC with log2 fold changes of -2.3 and 1.8 respectively. See plot_volcano.png for visualization.",
+  "jobId": "bio-task-123",
+  "artifacts": [
+    {
+      "id": "artifact-1",
+      "filename": "plot_volcano.png",
+      "type": "image/png",
+      "path": "artifacts/conv-789/artifact-1/plot_volcano.png"
+    },
+    {
+      "id": "artifact-2",
+      "filename": "deg_table.csv",
+      "type": "text/csv",
+      "path": "artifacts/conv-789/artifact-2/deg_table.csv"
+    }
+  ]
+}
+```
+
+## Usage Example
+
+```typescript
+// src/routes/deep-research/start.ts
+const analysisTasks = plan.filter(t => t.type === "ANALYSIS");
+
+for (const task of analysisTasks) {
+  const result = await analysisAgent({
+    objective: task.objective,
+    datasets: task.datasets,
+    type: analysisType,
+    userId,
+    conversationStateId: conversationState.id,
+    onPollUpdate: (update) => {
+      // Send real-time updates via WebSocket
+      notifyJobUpdate(messageId, update);
+    }
+  });
+  
+  task.output = result.output;
+  task.jobId = result.jobId;
+  task.artifacts = result.artifacts;
+}
+```
+
+## Configuration
+
+<ParamField path="PRIMARY_ANALYSIS_AGENT" type="string" default="edison">
+  Primary agent: `edison` or `bio`
+</ParamField>
+
+<ParamField path="EDISON_API_URL" type="string">
+  Edison API base URL (when PRIMARY_ANALYSIS_AGENT=edison or empty)
+</ParamField>
+
+<ParamField path="EDISON_API_KEY" type="string">
+  Edison API key
+</ParamField>
+
+<ParamField path="EDISON_TASK_TIMEOUT_MINUTES" type="number" default="30">
+  Edison task timeout in minutes
+</ParamField>
+
+<ParamField path="DATA_ANALYSIS_API_URL" type="string">
+  BioAgents Analysis API base URL (when PRIMARY_ANALYSIS_AGENT=bio)
+</ParamField>
+
+<ParamField path="DATA_ANALYSIS_API_KEY" type="string">
+  BioAgents Analysis API key
+</ParamField>
+
+<ParamField path="BIO_ANALYSIS_TASK_TIMEOUT_MINUTES" type="number" default="60">
+  BioAgents Analysis task timeout in minutes
+</ParamField>
+
+## Error Handling
+
+<AccordionGroup>
+  <Accordion title="Task timeout">
+    If analysis exceeds timeout, the agent returns an error:
+    
+    ```json
+    {
+      "output": "Error: Analysis task timed out after 60 minutes",
+      "jobId": "bio-task-123"
+    }
+    ```
+    
+    Increase `BIO_ANALYSIS_TASK_TIMEOUT_MINUTES` or `EDISON_TASK_TIMEOUT_MINUTES`.
+  </Accordion>
+  
+  <Accordion title="Dataset not found">
+    If dataset path is invalid:
+    
+    ```json
+    {
+      "output": "Error: Dataset 'data.csv' not found at path 'uploads/data.csv'"
+    }
+    ```
+    
+    Verify dataset was uploaded successfully and path is correct.
+  </Accordion>
+  
+  <Accordion title="API connection error">
+    If external API is unreachable:
+    
+    ```json
+    {
+      "output": "Error: Failed to connect to analysis API: ECONNREFUSED"
+    }
+    ```
+    
+    Check API URL and network connectivity.
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="File Upload" icon="upload" href="/agents/file-upload">
+    Upload datasets for analysis
+  </Card>
+  <Card title="Planning Agent" icon="list-check" href="/agents/planning">
+    Generates analysis tasks
+  </Card>
+  <Card title="Discovery Agent" icon="microscope" href="/agents/discovery">
+    Extracts discoveries from results
+  </Card>
+</CardGroup>

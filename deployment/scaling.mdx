@@ -1,0 +1,731 @@
+---
+title: Horizontal Scaling
+description: Scale BioAgents workers across multiple servers for high throughput and reliability
+---
+
+BioAgents workers can scale horizontally across multiple servers with no coordination required. All workers connect to the same Redis queue and automatically share the workload.
+
+## Scaling Architecture
+
+```mermaid
+graph TB
+    subgraph "Load Balancer"
+        LB[HAProxy/Nginx]
+    end
+    
+    subgraph "API Servers"
+        API1[API Server 1]
+        API2[API Server 2]
+        API3[API Server N]
+    end
+    
+    subgraph "Redis"
+        REDIS[(Upstash Redis)]
+    end
+    
+    subgraph "Worker Server 1"
+        W1A[Worker A]
+        W1B[Worker B]
+    end
+    
+    subgraph "Worker Server 2"
+        W2A[Worker A]
+        W2B[Worker B]
+    end
+    
+    subgraph "Worker Server N"
+        WNA[Worker A]
+        WNB[Worker B]
+    end
+    
+    subgraph "Database"
+        DB[(Supabase)]
+    end
+    
+    LB --> API1
+    LB --> API2
+    LB --> API3
+    
+    API1 --> REDIS
+    API2 --> REDIS
+    API3 --> REDIS
+    
+    W1A --> REDIS
+    W1B --> REDIS
+    W2A --> REDIS
+    W2B --> REDIS
+    WNA --> REDIS
+    WNB --> REDIS
+    
+    W1A --> DB
+    W1B --> DB
+    W2A --> DB
+    W2B --> DB
+    WNA --> DB
+    WNB --> DB
+```
+
+## Multi-Server Deployment
+
+### Server Roles
+
+<CardGroup cols={3}>
+  <Card title="API Servers" icon="server">
+    Handle HTTP/WebSocket requests, enqueue jobs, broadcast notifications
+  </Card>
+  <Card title="Worker Servers" icon="gears">
+    Process jobs from queue, execute AI workflows, update database
+  </Card>
+  <Card title="Redis" icon="database">
+    Central message broker for job queue and pub/sub
+  </Card>
+</CardGroup>
+
+### Setup Strategy
+
+1. **Deploy Redis** - Use managed service (Upstash, ElastiCache) for high availability
+2. **Deploy API servers** - Scale based on HTTP traffic and WebSocket connections
+3. **Deploy workers** - Scale based on queue depth and job processing needs
+
+## Worker Deployment
+
+### Prerequisites
+
+Each worker server needs:
+- Docker 20.10+
+- Access to Redis (via `REDIS_URL`)
+- Access to Supabase database
+- LLM API keys (OpenAI, Anthropic, etc.)
+
+### Deploy to New Server
+
+<Steps>
+  <Step title="Install Docker">
+    ```bash
+    curl -fsSL https://get.docker.com | sh
+    ```
+  </Step>
+  
+  <Step title="Clone Repository">
+    ```bash
+    git clone https://github.com/bio-xyz/bioagents-agentkit.git
+    cd bioagents-agentkit
+    ```
+  </Step>
+  
+  <Step title="Configure Environment">
+    ```bash
+    cp .env.worker.example .env
+    nano .env
+    ```
+    
+    **Required variables:**
+    ```bash
+    # External Redis (shared across all workers)
+    REDIS_URL=rediss://default:password@your-redis.upstash.io:6379
+    
+    # Database
+    SUPABASE_URL=https://your-project.supabase.co
+    SUPABASE_ANON_KEY=eyJ...
+    
+    # LLM API Keys
+    OPENAI_API_KEY=sk-...
+    ANTHROPIC_API_KEY=sk-ant-...
+    GOOGLE_API_KEY=AIza...
+    ```
+  </Step>
+  
+  <Step title="Start Workers">
+    ```bash
+    # Start 2 worker containers
+    docker-compose -f docker-compose.worker.yml up -d --scale worker=2
+    
+    # Verify workers are running
+    docker-compose -f docker-compose.worker.yml ps
+    ```
+  </Step>
+  
+  <Step title="Monitor Logs">
+    ```bash
+    docker-compose -f docker-compose.worker.yml logs -f
+    ```
+    
+    Look for:
+    ```
+    redis_publisher_connected
+    chat_queue_initialized
+    deep_research_queue_initialized
+    ```
+  </Step>
+</Steps>
+
+### Worker Configuration
+
+<CodeGroup>
+```yaml docker-compose.worker.yml
+services:
+  worker:
+    build: .
+    command: ["bun", "run", "src/worker.ts"]
+    
+    environment:
+      # Enable queue mode
+      - USE_JOB_QUEUE=true
+      
+      # External Redis
+      - REDIS_URL=${REDIS_URL}
+      
+      # Database
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      
+      # LLM API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      
+      # Worker concurrency
+      - CHAT_QUEUE_CONCURRENCY=${CHAT_QUEUE_CONCURRENCY:-5}
+      - DEEP_RESEARCH_QUEUE_CONCURRENCY=${DEEP_RESEARCH_QUEUE_CONCURRENCY:-3}
+      
+      # Production
+      - NODE_ENV=production
+    
+    restart: unless-stopped
+    
+    # Allow long-running jobs to complete
+    stop_grace_period: 8h
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+```
+
+```bash Deploy Script
+#!/bin/bash
+# deploy-worker.sh
+
+WORKERS=${1:-2}
+
+echo "Deploying $WORKERS workers..."
+
+# Pull latest code
+git pull
+
+# Build image
+docker-compose -f docker-compose.worker.yml build
+
+# Start workers
+docker-compose -f docker-compose.worker.yml up -d --scale worker=$WORKERS
+
+echo "Workers deployed!"
+docker-compose -f docker-compose.worker.yml ps
+```
+</CodeGroup>
+
+## Scaling Strategies
+
+### Scale Based on Queue Depth
+
+Monitor queue depth and scale workers accordingly:
+
+```bash
+# Check waiting jobs
+redis-cli -u $REDIS_URL LLEN bull:deep-research:waiting
+redis-cli -u $REDIS_URL LLEN bull:chat:waiting
+```
+
+**Scaling guidelines:**
+
+| Queue Depth | Recommended Workers | Response Time |
+|-------------|--------------------|--------------|
+| 0-10 jobs   | 2 workers          | < 5 minutes  |
+| 10-30 jobs  | 4 workers          | < 10 minutes |
+| 30-50 jobs  | 6 workers          | < 15 minutes |
+| 50+ jobs    | 8+ workers         | < 20 minutes |
+
+<Info>
+Each deep research worker can handle ~3 concurrent jobs. Each chat worker can handle ~5 concurrent jobs.
+</Info>
+
+### Auto-Scaling with Monitoring
+
+Implement auto-scaling based on queue metrics:
+
+<CodeGroup>
+```python Auto-Scale Script
+import redis
+import subprocess
+import time
+
+REDIS_URL = "redis://your-redis-host:6379"
+MIN_WORKERS = 2
+MAX_WORKERS = 10
+SCALE_UP_THRESHOLD = 20
+SCALE_DOWN_THRESHOLD = 5
+
+def get_queue_depth():
+    r = redis.from_url(REDIS_URL)
+    chat_waiting = r.llen("bull:chat:waiting")
+    research_waiting = r.llen("bull:deep-research:waiting")
+    return chat_waiting + research_waiting
+
+def get_current_workers():
+    result = subprocess.run(
+        ["docker-compose", "-f", "docker-compose.worker.yml", "ps", "-q"],
+        capture_output=True,
+        text=True
+    )
+    return len(result.stdout.strip().split("\n"))
+
+def scale_workers(count):
+    count = max(MIN_WORKERS, min(MAX_WORKERS, count))
+    subprocess.run([
+        "docker-compose", "-f", "docker-compose.worker.yml",
+        "up", "-d", "--scale", f"worker={count}"
+    ])
+    print(f"Scaled to {count} workers")
+
+while True:
+    depth = get_queue_depth()
+    current = get_current_workers()
+    
+    if depth > SCALE_UP_THRESHOLD:
+        scale_workers(current + 2)
+    elif depth < SCALE_DOWN_THRESHOLD and current > MIN_WORKERS:
+        scale_workers(current - 1)
+    
+    time.sleep(60)  # Check every minute
+```
+
+```bash Kubernetes HPA
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bioagents-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bioagents-worker
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: External
+    external:
+      metric:
+        name: redis_queue_depth
+      target:
+        type: AverageValue
+        averageValue: "20"
+```
+</CodeGroup>
+
+### Concurrency Tuning
+
+Adjust concurrency per worker based on server resources:
+
+<Tabs>
+  <Tab title="Low Memory (1GB)">
+    ```bash
+    CHAT_QUEUE_CONCURRENCY=2
+    DEEP_RESEARCH_QUEUE_CONCURRENCY=1
+    ```
+    
+    - 2 chat jobs + 1 research job = ~1.5GB peak memory
+    - Conservative but reliable
+  </Tab>
+  
+  <Tab title="Medium Memory (2GB)">
+    ```bash
+    CHAT_QUEUE_CONCURRENCY=5
+    DEEP_RESEARCH_QUEUE_CONCURRENCY=3
+    ```
+    
+    - Default configuration
+    - Balanced throughput and stability
+  </Tab>
+  
+  <Tab title="High Memory (4GB+)">
+    ```bash
+    CHAT_QUEUE_CONCURRENCY=10
+    DEEP_RESEARCH_QUEUE_CONCURRENCY=5
+    ```
+    
+    - Maximum throughput
+    - Requires monitoring to prevent OOM
+  </Tab>
+</Tabs>
+
+## Multi-Region Deployment
+
+Deploy workers in multiple regions for global coverage:
+
+```mermaid
+graph TB
+    subgraph "US East"
+        API_US[API Servers]
+        WORKER_US[Workers x4]
+    end
+    
+    subgraph "EU West"
+        API_EU[API Servers]
+        WORKER_EU[Workers x4]
+    end
+    
+    subgraph "Asia Pacific"
+        API_AP[API Servers]
+        WORKER_AP[Workers x2]
+    end
+    
+    subgraph "Global Services"
+        REDIS[Upstash Redis<br/>Multi-region]
+        DB[Supabase<br/>Primary]
+    end
+    
+    API_US --> REDIS
+    API_EU --> REDIS
+    API_AP --> REDIS
+    
+    WORKER_US --> REDIS
+    WORKER_EU --> REDIS
+    WORKER_AP --> REDIS
+    
+    WORKER_US --> DB
+    WORKER_EU --> DB
+    WORKER_AP --> DB
+```
+
+<Warning>
+Multi-region deployments require:
+- Low-latency Redis (use Upstash Global or regional replicas)
+- Database replication or read replicas
+- Careful handling of cross-region network latency
+</Warning>
+
+## Resource Planning
+
+### Worker Server Sizing
+
+<Tabs>
+  <Tab title="Hetzner Cloud">
+    | Plan | vCPU | RAM | Workers | Cost/mo |
+    |------|------|-----|---------|--------|
+    | CX22 | 2 | 4GB | 2 | $6 |
+    | CX32 | 4 | 8GB | 4 | $12 |
+    | CX42 | 8 | 16GB | 8 | $24 |
+    | CX52 | 16 | 32GB | 16 | $48 |
+  </Tab>
+  
+  <Tab title="DigitalOcean">
+    | Droplet | vCPU | RAM | Workers | Cost/mo |
+    |---------|------|-----|---------|--------|
+    | Basic | 2 | 4GB | 2 | $24 |
+    | General Purpose | 4 | 8GB | 4 | $48 |
+    | CPU-Optimized | 8 | 16GB | 8 | $96 |
+  </Tab>
+  
+  <Tab title="AWS EC2">
+    | Instance | vCPU | RAM | Workers | Cost/mo |
+    |----------|------|-----|---------|--------|
+    | t3.medium | 2 | 4GB | 2 | $30 |
+    | t3.large | 2 | 8GB | 4 | $60 |
+    | c6i.xlarge | 4 | 8GB | 4 | $122 |
+    | c6i.2xlarge | 8 | 16GB | 8 | $244 |
+  </Tab>
+</Tabs>
+
+### Cost Optimization
+
+<AccordionGroup>
+  <Accordion title="Spot Instances">
+    Use spot instances for burst capacity:
+    
+    ```bash
+    # AWS EC2 Spot
+    aws ec2 run-instances \
+      --instance-type c6i.xlarge \
+      --spot-instance-request-type one-time \
+      --user-data file://worker-init.sh
+    ```
+    
+    **Benefits:**
+    - 60-90% cost savings
+    - Good for non-critical workers
+    
+    **Risks:**
+    - Can be terminated with 2-minute notice
+    - Workers should handle graceful shutdown
+  </Accordion>
+  
+  <Accordion title="Reserved Instances">
+    Reserve minimum capacity for predictable workloads:
+    
+    - 1-year commitment: ~30% savings
+    - 3-year commitment: ~50% savings
+    
+    **Strategy:**
+    - Reserve minimum worker capacity (e.g., 2 workers)
+    - Use on-demand/spot for scaling above baseline
+  </Accordion>
+  
+  <Accordion title="Autoscaling">
+    Scale workers based on time of day:
+    
+    ```bash
+    # Cron job: Scale up during business hours
+    0 9 * * 1-5 /opt/bioagents/scale-workers.sh 8
+    
+    # Scale down at night
+    0 18 * * 1-5 /opt/bioagents/scale-workers.sh 2
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## High Availability
+
+### Worker Redundancy
+
+Always run at least 2 workers to prevent single point of failure:
+
+```bash
+# Minimum HA setup
+docker-compose -f docker-compose.worker.yml up -d --scale worker=2
+```
+
+<Info>
+If one worker crashes, the other continues processing jobs. BullMQ automatically reassigns stalled jobs.
+</Info>
+
+### Graceful Shutdown
+
+Workers use `stop_grace_period: 8h` to finish long-running jobs:
+
+```yaml
+services:
+  worker:
+    stop_grace_period: 8h  # Allow deep research jobs to complete
+```
+
+**Shutdown behavior:**
+
+1. Docker sends `SIGTERM` to worker
+2. Worker stops accepting new jobs
+3. Worker continues processing active jobs
+4. After 8 hours, Docker sends `SIGKILL` (force stop)
+
+<Warning>
+Never use `docker-compose down` without checking for active jobs. Use Bull Board to verify queue is empty first.
+</Warning>
+
+### Redis Failover
+
+Use managed Redis with automatic failover:
+
+<Tabs>
+  <Tab title="Upstash">
+    ```bash
+    REDIS_URL=rediss://default:password@your-redis.upstash.io:6379
+    ```
+    
+    **Features:**
+    - Multi-region replication
+    - Automatic failover
+    - TLS encryption
+    - Pay-per-use pricing
+  </Tab>
+  
+  <Tab title="AWS ElastiCache">
+    ```bash
+    REDIS_URL=redis://master.cluster.abc123.use1.cache.amazonaws.com:6379
+    ```
+    
+    **Features:**
+    - Automatic failover with Redis Cluster
+    - Multi-AZ deployment
+    - Automated backups
+    - CloudWatch monitoring
+  </Tab>
+  
+  <Tab title="Redis Sentinel">
+    ```bash
+    REDIS_URL=redis://sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+    ```
+    
+    **Features:**
+    - Self-hosted HA solution
+    - Automatic failover
+    - Lower cost than managed services
+    - Requires more maintenance
+  </Tab>
+</Tabs>
+
+## Monitoring & Observability
+
+### Queue Metrics
+
+Export queue metrics to monitoring systems:
+
+<CodeGroup>
+```javascript Prometheus Exporter
+const client = require('prom-client');
+const { getChatQueue, getDeepResearchQueue } = require('./queue/queues');
+
+const queueDepthGauge = new client.Gauge({
+  name: 'bioagents_queue_depth',
+  help: 'Number of jobs waiting in queue',
+  labelNames: ['queue', 'state']
+});
+
+async function updateMetrics() {
+  const chatQueue = getChatQueue();
+  const researchQueue = getDeepResearchQueue();
+  
+  const chatCounts = await chatQueue.getJobCounts();
+  const researchCounts = await researchQueue.getJobCounts();
+  
+  queueDepthGauge.set({ queue: 'chat', state: 'waiting' }, chatCounts.waiting);
+  queueDepthGauge.set({ queue: 'chat', state: 'active' }, chatCounts.active);
+  queueDepthGauge.set({ queue: 'deep-research', state: 'waiting' }, researchCounts.waiting);
+  queueDepthGauge.set({ queue: 'deep-research', state: 'active' }, researchCounts.active);
+}
+
+setInterval(updateMetrics, 10000); // Every 10 seconds
+```
+
+```yaml Grafana Dashboard
+panels:
+  - title: Queue Depth
+    targets:
+      - expr: bioagents_queue_depth{state="waiting"}
+        legendFormat: "{{queue}} - waiting"
+      - expr: bioagents_queue_depth{state="active"}
+        legendFormat: "{{queue}} - active"
+  
+  - title: Worker Count
+    targets:
+      - expr: count(up{job="bioagents-worker"})
+        legendFormat: "Active Workers"
+  
+  - title: Job Processing Time
+    targets:
+      - expr: histogram_quantile(0.95, rate(bioagents_job_duration_seconds_bucket[5m]))
+        legendFormat: "p95"
+```
+</CodeGroup>
+
+### Alerting
+
+Set up alerts for queue health:
+
+```yaml
+alerts:
+  - name: HighQueueDepth
+    expr: bioagents_queue_depth{state="waiting"} > 50
+    for: 10m
+    annotations:
+      summary: "Queue depth is high"
+      description: "{{ $labels.queue }} has {{ $value }} waiting jobs"
+  
+  - name: NoActiveWorkers
+    expr: count(up{job="bioagents-worker"}) == 0
+    for: 1m
+    annotations:
+      summary: "No workers are running"
+      description: "All workers are down - jobs will not be processed"
+  
+  - name: HighJobFailureRate
+    expr: rate(bioagents_job_failures_total[5m]) > 0.1
+    for: 5m
+    annotations:
+      summary: "Job failure rate is high"
+      description: "{{ $value }} jobs/sec are failing"
+```
+
+## Troubleshooting
+
+### Workers Not Picking Up Jobs
+
+**Check Redis connection:**
+```bash
+docker-compose -f docker-compose.worker.yml logs | grep -i redis
+```
+
+**Expected output:**
+```
+redis_publisher_connected
+chat_queue_initialized
+deep_research_queue_initialized
+```
+
+**Verify Redis URL:**
+```bash
+docker-compose -f docker-compose.worker.yml exec worker env | grep REDIS
+```
+
+### Uneven Load Distribution
+
+**Symptom:** Some workers process many jobs, others idle.
+
+**Cause:** Different worker start times or concurrency settings.
+
+**Fix:** Ensure all workers have identical configuration:
+```bash
+# Restart all workers simultaneously
+docker-compose -f docker-compose.worker.yml down
+docker-compose -f docker-compose.worker.yml up -d --scale worker=4
+```
+
+### Memory Leaks
+
+**Monitor memory over time:**
+```bash
+docker stats --no-stream
+```
+
+**Implement periodic restarts:**
+```bash
+# Cron job: Rolling restart every 24 hours
+0 3 * * * /opt/bioagents/rolling-restart.sh
+```
+
+```bash rolling-restart.sh
+#!/bin/bash
+# Restart workers one at a time to maintain capacity
+
+for i in {1..4}; do
+  echo "Restarting worker $i..."
+  docker-compose -f docker-compose.worker.yml restart worker_$i
+  sleep 60  # Wait 1 minute between restarts
+done
+```
+
+## Best Practices
+
+<Check>
+- [ ] Run at least 2 workers for redundancy
+- [ ] Use managed Redis with automatic failover
+- [ ] Configure `stop_grace_period` for graceful shutdown
+- [ ] Monitor queue depth and scale accordingly
+- [ ] Set up alerts for queue health
+- [ ] Test worker failure scenarios
+- [ ] Document scaling procedures
+- [ ] Use infrastructure as code (Terraform, CloudFormation)
+- [ ] Implement auto-scaling for cost optimization
+- [ ] Regular load testing to validate capacity
+</Check>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Job Queue" icon="list-check" href="/deployment/job-queue">
+    Learn about BullMQ architecture and configuration
+  </Card>
+  <Card title="Docker Setup" icon="docker" href="/deployment/docker">
+    Deploy with docker-compose
+  </Card>
+</CardGroup>

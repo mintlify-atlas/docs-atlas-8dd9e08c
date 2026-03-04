@@ -1,0 +1,340 @@
+---
+title: "Deep Research API"
+description: "Multi-iteration autonomous research with hypothesis evolution and discovery tracking"
+api: "POST /api/deep-research/start"
+---
+
+## Overview
+
+The Deep Research API enables iterative, hypothesis-driven scientific research. Unlike the basic chat API, deep research runs multiple autonomous cycles of planning, execution, hypothesis generation, and reflection.
+
+## Key Capabilities
+
+- **Autonomous Iteration**: Runs multiple research cycles until objectives are met
+- **Hypothesis Evolution**: Updates hypotheses based on new evidence
+- **Discovery Tracking**: Identifies and links novel findings to supporting evidence
+- **Clarification Context**: Accepts pre-approved research plans from clarification sessions
+- **Research Modes**: Semi-autonomous, fully-autonomous, or steering modes
+
+## Authentication
+
+All deep research endpoints require authentication.
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for JWT authentication
+</ParamField>
+
+<ParamField header="X-API-Key" type="string">
+  Alternative API key authentication
+</ParamField>
+
+---
+
+## POST /api/deep-research/start
+
+Initiate a new deep research investigation.
+
+### Request Body
+
+<ParamField body="message" type="string" required>
+  The research question or objective
+</ParamField>
+
+<ParamField body="conversationId" type="string">
+  Optional conversation ID. Auto-generated if not provided.
+</ParamField>
+
+<ParamField body="researchMode" type="string">
+  Research execution mode:
+  - `semi-autonomous` (default): Runs up to MAX_AUTO_ITERATIONS (default 5)
+  - `fully-autonomous`: Continues until complete or 20 iterations
+  - `steering`: Single iteration only, always asks for user feedback
+</ParamField>
+
+<ParamField body="clarificationSessionId" type="string">
+  Optional clarification session ID containing pre-approved plan and answers
+</ParamField>
+
+<ParamField body="files" type="File[]">
+  Optional files to upload for analysis
+</ParamField>
+
+### Response (In-Process Mode)
+
+Returns `202 Accepted` immediately. Research runs in background.
+
+<ResponseField name="messageId" type="string">
+  Message ID for status polling
+</ResponseField>
+
+<ResponseField name="conversationId" type="string">
+  Conversation ID for tracking
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User ID for ownership verification
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Initial status: `processing`
+</ResponseField>
+
+<ResponseField name="pollUrl" type="string">
+  URL to check research progress
+</ResponseField>
+
+### Response (Queue Mode)
+
+Returns `202 Accepted` with job information.
+
+<ResponseField name="jobId" type="string">
+  BullMQ job ID for the first iteration
+</ResponseField>
+
+<ResponseField name="messageId" type="string">
+  Root message ID for tracking
+</ResponseField>
+
+<ResponseField name="conversationId" type="string">
+  Conversation ID
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User ID
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Job status: `queued`
+</ResponseField>
+
+<ResponseField name="pollUrl" type="string">
+  URL to check job status
+</ResponseField>
+
+### Example: Start Research
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/deep-research/start \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Investigate the molecular mechanisms by which caloric restriction extends lifespan",
+    "researchMode": "semi-autonomous"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "messageId": "msg_abc123",
+  "conversationId": "conv_xyz789",
+  "userId": "usr_def456",
+  "status": "processing",
+  "pollUrl": "/api/deep-research/status/msg_abc123"
+}
+```
+
+### Example: With Clarification Context
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/deep-research/start \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Execute the approved research plan",
+    "clarificationSessionId": "clarif_abc123",
+    "researchMode": "fully-autonomous"
+  }'
+```
+
+### Example: With File Upload
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/deep-research/start \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "message=Analyze gene expression changes under caloric restriction" \
+  -F "files=@gene_expression.csv" \
+  -F "files=@lifespan_data.csv" \
+  -F "researchMode=semi-autonomous"
+```
+
+---
+
+## Research Workflow
+
+Each iteration follows this sequence:
+
+1. **Planning**: Determines tasks to execute based on current state
+2. **Execution**: Runs literature search and data analysis tasks in parallel
+3. **Hypothesis**: Generates or updates scientific hypothesis
+4. **Reflection**: Extracts insights and evolves research objectives
+5. **Discovery**: Identifies novel findings with evidence links
+6. **Continuation**: Decides whether to continue or ask user for guidance
+
+### World State
+
+The conversation state accumulates knowledge across iterations:
+
+- `currentObjective`: Current research focus
+- `evolvingObjective`: Long-term research direction
+- `currentHypothesis`: Latest scientific hypothesis
+- `keyInsights`: Extracted insights from all tasks
+- `discoveries`: Novel findings with evidence attribution
+- `methodology`: Research methodology description
+- `plan`: All executed and planned tasks
+- `suggestedNextSteps`: Agent's suggestions for next iteration
+
+---
+
+## Deduplication
+
+The API prevents duplicate research runs for the same conversation:
+
+- If an active run exists, returns the existing `messageId` and `pollUrl`
+- Uses mutex locks to prevent race conditions
+- Response includes `deduplicated: true` flag
+
+### Example: Deduplicated Response
+
+```json
+{
+  "messageId": "msg_existing",
+  "conversationId": "conv_xyz789",
+  "userId": "usr_def456",
+  "status": "processing",
+  "pollUrl": "/api/deep-research/status/msg_existing",
+  "deduplicated": true
+}
+```
+
+---
+
+## Research Modes
+
+### Semi-Autonomous (Default)
+
+Runs up to `MAX_AUTO_ITERATIONS` (default 5) before asking for user feedback.
+
+```json
+{
+  "message": "Research question here",
+  "researchMode": "semi-autonomous"
+}
+```
+
+### Fully Autonomous
+
+Continues iterating until research objectives are met or 20 iterations reached.
+
+```json
+{
+  "message": "Research question here",
+  "researchMode": "fully-autonomous"
+}
+```
+
+### Steering Mode
+
+Executes only a single iteration and always returns control to user.
+
+```json
+{
+  "message": "Research question here",
+  "researchMode": "steering"
+}
+```
+
+---
+
+## Clarification Integration
+
+When starting research with a clarification session:
+
+1. User completes pre-research clarification flow
+2. Clarification session contains approved plan with initial tasks
+3. Pass `clarificationSessionId` to skip planning on first iteration
+4. Initial tasks are executed with resolved dataset references
+
+### Clarification Context Structure
+
+```typescript
+{
+  sessionId: string;
+  refinedObjective: string;
+  questionsAndAnswers: Array<{
+    question: string;
+    answer: string;
+  }>;
+  initialTasks?: Array<{
+    objective: string;
+    type: "LITERATURE" | "ANALYSIS";
+    datasetFilenames: string[];
+  }>;
+}
+```
+
+---
+
+## Error Codes
+
+<ResponseField name="400" type="Bad Request">
+  - Missing required field: message
+  - Clarification session not approved
+  - Invalid research mode
+</ResponseField>
+
+<ResponseField name="401" type="Unauthorized">
+  Missing or invalid authentication
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  Clarification session not found or access denied
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  - Setup failed
+  - Data setup failed
+  - Failed to initialize deep research run
+</ResponseField>
+
+---
+
+## Task Types
+
+### LITERATURE Tasks
+
+Searches scientific literature from multiple sources:
+
+- **OpenScholar**: General scientific papers
+- **Edison/BioLit**: Bioscience-specific literature
+- **Knowledge Base**: Internal/custom knowledge
+
+Each task captures:
+- `objective`: Search query
+- `output`: Formatted literature results with DOI citations
+- `jobId`: External service job ID for traceability
+- `reasoning`: Intermediate reasoning traces (for Edison/BioLit)
+
+### ANALYSIS Tasks
+
+Executes data analysis on uploaded datasets:
+
+- Supports CSV, Excel, and other tabular formats
+- Runs statistical analysis and visualization
+- Generates plots and figures
+
+Each task captures:
+- `objective`: Analysis goal
+- `datasets`: Array of dataset references
+- `output`: Analysis results with interpretations
+- `artifacts`: Generated plots and files
+- `jobId`: Analysis job ID
+
+---
+
+## Related Endpoints
+
+- [Status API](/api/status) - Check research progress
+- [Chat API](/api/chat) - Simple conversational queries
+- [Health API](/api/health) - Service health check

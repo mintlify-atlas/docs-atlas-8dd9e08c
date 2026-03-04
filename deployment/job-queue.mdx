@@ -1,0 +1,612 @@
+---
+title: Job Queue Architecture
+description: Learn how BioAgents uses BullMQ and Redis for reliable, scalable background job processing
+---
+
+BioAgents uses [BullMQ](https://docs.bullmq.io/) for reliable background job processing. This enables horizontal scaling, job persistence, automatic retries, and real-time progress notifications.
+
+## Architecture Overview
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant Redis
+    participant Worker
+    participant Database
+    
+    Client->>API: POST /api/chat
+    API->>Redis: Enqueue job
+    API-->>Client: 202 Accepted {jobId}
+    
+    Worker->>Redis: Poll for jobs
+    Redis-->>Worker: Job data
+    Worker->>Worker: Process AI workflow
+    Worker->>Redis: Publish progress
+    Redis->>API: Forward notification
+    API-->>Client: WebSocket: progress update
+    Worker->>Database: Save results
+    Worker->>Redis: Mark complete
+    Redis->>API: Job completed
+    API-->>Client: WebSocket: job done
+    Client->>API: GET /api/messages/{id}
+    API->>Database: Fetch message
+    Database-->>API: Message data
+    API-->>Client: Full response
+```
+
+### Data Flow
+
+1. **Request** - Client sends HTTP request to API server
+2. **Enqueue** - API creates job in Redis queue, returns job ID immediately
+3. **Process** - Worker picks up job, executes AI workflow
+4. **Notify** - Worker publishes progress via Redis Pub/Sub
+5. **Broadcast** - API receives notification, broadcasts to WebSocket clients
+6. **Fetch** - Client receives notification, fetches results via HTTP
+
+<Info>
+This is the **"Notify + Fetch"** pattern - notifications are lightweight (just IDs), actual data is fetched via REST API.
+</Info>
+
+## Queue Definitions
+
+BioAgents uses separate queues for different job types:
+
+### Chat Queue
+
+For `/api/chat` requests - conversational AI interactions.
+
+<CodeGroup>
+```typescript Queue Configuration
+export function getChatQueue(): Queue<ChatJobData, ChatJobResult> {
+  return new Queue<ChatJobData, ChatJobResult>("chat", {
+    connection: getBullMQConnection(),
+    defaultJobOptions: {
+      // Retry configuration
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 1000, // 1s → 2s → 4s
+      },
+      // Job cleanup
+      removeOnComplete: {
+        age: 3600, // Keep for 1 hour
+        count: 1000,
+      },
+      removeOnFail: {
+        age: 86400, // Keep failed for 24 hours
+      },
+    },
+  });
+}
+```
+
+```typescript Job Data
+interface ChatJobData {
+  userId: string;
+  conversationId: string;
+  messageId: string;
+  message: string;
+  authMethod: AuthMethod;
+  fileIds?: string[];
+  requestedAt: string;
+}
+```
+</CodeGroup>
+
+**Settings:**
+- **Concurrency:** 5 (configurable via `CHAT_QUEUE_CONCURRENCY`)
+- **Retry:** 3 attempts with exponential backoff
+- **Timeout:** None (handled by worker `lockDuration`)
+- **Retention:** 1 hour (completed), 24 hours (failed)
+
+### Deep Research Queue
+
+For `/api/deep-research/start` requests - multi-iteration research workflows.
+
+<CodeGroup>
+```typescript Queue Configuration
+export function getDeepResearchQueue(): Queue<DeepResearchJobData, DeepResearchJobResult> {
+  return new Queue<DeepResearchJobData, DeepResearchJobResult>("deep-research", {
+    connection: getBullMQConnection(),
+    defaultJobOptions: {
+      // Fewer retries for long jobs
+      attempts: 2,
+      backoff: {
+        type: "exponential",
+        delay: 5000, // 5s → 10s
+      },
+      // No timeout - jobs can run 20-30+ minutes
+      removeOnComplete: {
+        age: 86400, // Keep for 24 hours
+        count: 500,
+      },
+      removeOnFail: {
+        age: 604800, // Keep failed for 7 days
+      },
+    },
+  });
+}
+```
+
+```typescript Job Data
+interface DeepResearchJobData {
+  userId: string;
+  conversationId: string;
+  messageId: string;
+  rootMessageId?: string;
+  message: string;
+  authMethod: AuthMethod;
+  stateId: string;
+  conversationStateId: string;
+  
+  // Research mode
+  researchMode?: "semi-autonomous" | "fully-autonomous" | "steering";
+  
+  // Iteration tracking
+  iterationNumber: number;
+  rootJobId?: string;
+  isInitialIteration: boolean;
+}
+```
+</CodeGroup>
+
+**Settings:**
+- **Concurrency:** 3 (configurable via `DEEP_RESEARCH_QUEUE_CONCURRENCY`)
+- **Retry:** 2 attempts with longer backoff
+- **Timeout:** None (can run indefinitely)
+- **Retention:** 24 hours (completed), 7 days (failed)
+
+<Warning>
+Deep research jobs can run for 20-30+ minutes and consume 500MB-1GB of memory per job. Size worker resources accordingly.
+</Warning>
+
+### Paper Generation Queue
+
+For LaTeX paper generation from research conversations.
+
+**Settings:**
+- **Concurrency:** 1 (configurable via `PAPER_GENERATION_CONCURRENCY`)
+- **Retry:** No retries (internal fallback strategies)
+- **Timeout:** None (compilation can take 5-15+ minutes)
+- **Retention:** 24 hours (completed), 7 days (failed)
+
+### File Process Queue
+
+For processing uploaded files (PDFs, images, etc.).
+
+**Settings:**
+- **Concurrency:** 5 (auto-configured)
+- **Retry:** 3 attempts
+- **Timeout:** 2 minutes
+- **Retention:** 1 hour (completed), 24 hours (failed)
+
+## Redis Connection
+
+BioAgents uses [ioredis](https://github.com/redis/ioredis) for Redis connections:
+
+<CodeGroup>
+```typescript Connection Manager
+import Redis from "ioredis";
+
+// BullMQ connection (for queues and workers)
+export function getBullMQConnection(): Redis {
+  const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+  
+  return new Redis(redisUrl, {
+    maxRetriesPerRequest: null, // Required for BullMQ
+    retryStrategy: (times) => {
+      if (times > 10) return null;
+      return Math.min(times * 200, 5000);
+    },
+    reconnectOnError: (err) => {
+      const targetErrors = ["READONLY", "ECONNRESET", "ETIMEDOUT"];
+      return targetErrors.some((e) => err.message.includes(e));
+    },
+  });
+}
+
+// Publisher (for notifications)
+export function getPublisher(): Redis {
+  return new Redis(process.env.REDIS_URL);
+}
+
+// Subscriber (for notifications)
+export function getSubscriber(): Redis {
+  return new Redis(process.env.REDIS_URL);
+}
+```
+
+```bash Environment
+# Option 1: Full URL
+REDIS_URL=redis://localhost:6379
+
+# Option 2: Individual settings
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your-password
+
+# Managed Redis (e.g., Upstash)
+REDIS_URL=rediss://default:password@host.upstash.io:6379
+```
+</CodeGroup>
+
+<Info>
+Pub/Sub requires **separate connections** for publisher and subscriber - this is a Redis limitation.
+</Info>
+
+## Worker Implementation
+
+Workers run in separate processes and poll Redis for jobs:
+
+<CodeGroup>
+```typescript Chat Worker
+import { Worker, Job } from "bullmq";
+import { getBullMQConnection } from "../connection";
+
+async function processChatJob(
+  job: Job<ChatJobData, ChatJobResult>
+): Promise<ChatJobResult> {
+  const { userId, conversationId, messageId, message } = job.data;
+  
+  // Notify job started
+  await notifyJobStarted(job.id!, conversationId, messageId);
+  
+  try {
+    // Process message with AI agent
+    const result = await processChatMessage({
+      userId,
+      conversationId,
+      messageId,
+      message,
+    });
+    
+    // Notify completion
+    await notifyJobCompleted(job.id!, conversationId, messageId);
+    
+    return result;
+  } catch (error) {
+    await notifyJobFailed(job.id!, conversationId, messageId, error);
+    throw error;
+  }
+}
+
+// Create worker
+const worker = new Worker("chat", processChatJob, {
+  connection: getBullMQConnection(),
+  concurrency: parseInt(process.env.CHAT_QUEUE_CONCURRENCY || "5"),
+  lockDuration: 180000, // 3 minutes
+});
+
+worker.on("completed", (job) => {
+  logger.info({ jobId: job.id }, "chat_job_completed");
+});
+
+worker.on("failed", (job, err) => {
+  logger.error({ jobId: job?.id, err }, "chat_job_failed");
+});
+```
+
+```typescript Deep Research Worker
+const worker = new Worker("deep-research", processDeepResearchJob, {
+  connection: getBullMQConnection(),
+  concurrency: parseInt(process.env.DEEP_RESEARCH_QUEUE_CONCURRENCY || "3"),
+  lockDuration: 1800000, // 30 minutes
+});
+```
+</CodeGroup>
+
+### Worker Process
+
+Run workers as separate processes:
+
+```bash
+# Development (with hot reload)
+bun run worker:dev
+
+# Production
+bun run worker
+
+# Docker
+docker compose up -d worker
+```
+
+## WebSocket Notifications
+
+Real-time progress updates via Redis Pub/Sub:
+
+### Connection
+
+```javascript
+const ws = new WebSocket('wss://api.example.com/api/ws?token=<jwt>');
+
+ws.onopen = () => {
+  // Subscribe to conversation
+  ws.send(JSON.stringify({
+    action: 'subscribe',
+    conversationId: '<conversation-id>'
+  }));
+};
+```
+
+### Notification Types
+
+<ParamField path="job:started" type="notification">
+  Job processing began
+  
+  ```json
+  {
+    "type": "job:started",
+    "jobId": "123",
+    "conversationId": "abc",
+    "messageId": "msg-789"
+  }
+  ```
+</ParamField>
+
+<ParamField path="job:progress" type="notification">
+  Progress update
+  
+  ```json
+  {
+    "type": "job:progress",
+    "jobId": "123",
+    "conversationId": "abc",
+    "progress": {
+      "stage": "literature_search",
+      "percent": 45
+    }
+  }
+  ```
+</ParamField>
+
+<ParamField path="job:completed" type="notification">
+  Job finished successfully
+  
+  ```json
+  {
+    "type": "job:completed",
+    "jobId": "123",
+    "conversationId": "abc",
+    "messageId": "msg-789"
+  }
+  ```
+</ParamField>
+
+<ParamField path="job:failed" type="notification">
+  Job failed after retries
+  
+  ```json
+  {
+    "type": "job:failed",
+    "jobId": "123",
+    "conversationId": "abc",
+    "messageId": "msg-789",
+    "error": "LLM API error"
+  }
+  ```
+</ParamField>
+
+### Client Implementation
+
+```javascript
+ws.onmessage = async (event) => {
+  const notification = JSON.parse(event.data);
+  
+  switch (notification.type) {
+    case 'job:progress':
+      updateProgressBar(notification.progress.percent);
+      break;
+      
+    case 'job:completed':
+      // Fetch the actual message content
+      const response = await fetch(`/api/messages/${notification.messageId}`);
+      const message = await response.json();
+      displayMessage(message);
+      break;
+      
+    case 'job:failed':
+      showError('Processing failed');
+      break;
+  }
+};
+```
+
+## Monitoring
+
+### Bull Board Dashboard
+
+Access the admin UI at `/admin/queues` when queue mode is enabled:
+
+<Frame>
+  <img src="/images/bull-board.png" alt="Bull Board Dashboard" />
+</Frame>
+
+**Features:**
+- View queue status and job counts
+- Inspect job data and results
+- Retry failed jobs manually
+- Pause/resume queues
+- View job logs and stack traces
+
+### Health Check
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "jobQueue": {
+    "enabled": true,
+    "redis": "connected"
+  }
+}
+```
+
+### Queue Metrics
+
+Query queue metrics programmatically:
+
+```bash
+curl http://localhost:3000/admin/queues/api/queues
+```
+
+```json
+{
+  "queues": [
+    {
+      "name": "chat",
+      "counts": {
+        "active": 2,
+        "waiting": 5,
+        "completed": 150,
+        "failed": 3
+      }
+    },
+    {
+      "name": "deep-research",
+      "counts": {
+        "active": 1,
+        "waiting": 0,
+        "completed": 25,
+        "failed": 1
+      }
+    }
+  ]
+}
+```
+
+## Configuration
+
+### Environment Variables
+
+<ParamField path="USE_JOB_QUEUE" type="boolean" default="false" required>
+  Enable BullMQ job queue (required for queue mode)
+</ParamField>
+
+<ParamField path="REDIS_URL" type="string" required>
+  Redis connection URL (e.g., `redis://localhost:6379`)
+</ParamField>
+
+<ParamField path="CHAT_QUEUE_CONCURRENCY" type="number" default="5">
+  Number of parallel chat jobs per worker
+</ParamField>
+
+<ParamField path="DEEP_RESEARCH_QUEUE_CONCURRENCY" type="number" default="3">
+  Number of parallel research jobs per worker
+</ParamField>
+
+<ParamField path="PAPER_GENERATION_CONCURRENCY" type="number" default="1">
+  Number of parallel paper generation jobs per worker
+</ParamField>
+
+### Redis Memory Configuration
+
+```bash
+# In docker-compose.yml
+redis:
+  image: redis:7-alpine
+  command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
+```
+
+**Memory Guidelines:**
+
+| Scenario | Memory | Concurrent Jobs |
+|----------|--------|----------------|
+| Development | 256MB | ~50 |
+| Light Production | 512MB | ~100 |
+| Medium Production | 1GB | ~500 |
+| Heavy Production | 2GB+ | 1000+ |
+
+<Warning>
+Deep research jobs have larger payloads (literature results, analysis data) and consume more memory per job.
+</Warning>
+
+## Troubleshooting
+
+### Jobs Stuck in "waiting"
+
+**Cause:** No workers are running.
+
+**Fix:**
+```bash
+USE_JOB_QUEUE=true bun run worker
+```
+
+### Jobs Stuck in "active"
+
+**Cause:** Worker crashed mid-job.
+
+**Fix:** BullMQ automatically marks stalled jobs after `stalledInterval` (30s default). Or manually retry via Bull Board.
+
+### Redis Connection Errors
+
+**Cause:** Redis not running or network issues.
+
+**Fix:**
+```bash
+# Check Redis is running
+redis-cli ping  # Should return PONG
+
+# Check connection URL
+echo $REDIS_URL
+
+# Test connection
+redis-cli -u $REDIS_URL ping
+```
+
+### High Memory Usage
+
+**Cause:** Too many retained jobs or large payloads.
+
+**Fix:** Adjust retention settings in `src/services/queue/queues.ts`:
+
+```typescript
+removeOnComplete: {
+  age: 1800,   // 30 minutes instead of 1 hour
+  count: 500,  // Keep fewer jobs
+}
+```
+
+### Duplicate Job Processing
+
+**Cause:** Network partition caused BullMQ to think job was stalled.
+
+**Fix:** Increase `lockDuration` in worker:
+
+```typescript
+const worker = new Worker('chat', processor, {
+  lockDuration: 60000,  // 60 seconds instead of 30
+});
+```
+
+## Best Practices
+
+<Check>
+- [ ] Use queue mode for production deployments
+- [ ] Configure appropriate concurrency based on resources
+- [ ] Set `stop_grace_period` to allow long-running jobs to complete
+- [ ] Enable Redis persistence with `appendonly yes`
+- [ ] Monitor queue depth and scale workers accordingly
+- [ ] Set up alerts for failed jobs
+- [ ] Use managed Redis (Upstash, ElastiCache) for high availability
+- [ ] Configure job retention to prevent memory bloat
+- [ ] Test graceful shutdown behavior
+- [ ] Implement idempotent job handlers
+</Check>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Learn how to deploy with docker-compose
+  </Card>
+  <Card title="Horizontal Scaling" icon="arrows-up-to-line" href="/deployment/scaling">
+    Scale workers across multiple servers for high throughput
+  </Card>
+</CardGroup>

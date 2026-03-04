@@ -1,0 +1,523 @@
+---
+title: 'x402 Payment Protocol'
+description: 'Pay-per-request API access using USDC on Base blockchain'
+---
+
+## Overview
+
+The x402 payment protocol enables pay-per-request API access using USDC on Base (or Base Sepolia testnet). Instead of API keys, clients submit cryptographic payment proofs with each request.
+
+<Info>
+  x402 implements the [HTTP 402 Payment Required](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/402) status code with blockchain payments.
+</Info>
+
+## Protocol Version
+
+- **Protocol**: x402 V2
+- **Network**: Base (mainnet) or Base Sepolia (testnet)
+- **Asset**: USDC (6 decimals)
+- **Signature Scheme**: EIP-712 structured data signing
+
+## Configuration
+
+### Get Config
+
+<ParamField path="GET /api/x402/config" type="endpoint">
+  Get x402 configuration and network details
+</ParamField>
+
+**Response**
+
+```json
+{
+  "enabled": true,
+  "protocol": "x402",
+  "x402Version": 2,
+  "network": "Base",
+  "environment": "mainnet",
+  "asset": "USDC",
+  "paymentAddress": "0x...",
+  "facilitatorUrl": "https://facilitator.x402.ai",
+  "usdcAddress": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "chainId": 8453,
+  "rpcUrl": "https://mainnet.base.org",
+  "explorer": "https://basescan.org",
+  "availableNetworks": [
+    {
+      "id": "base",
+      "protocol": "x402",
+      "name": "Base",
+      "chainId": 8453,
+      "tokens": [
+        {
+          "symbol": "USDC",
+          "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "decimals": 6
+        }
+      ],
+      "facilitatorUrl": "https://facilitator.x402.ai",
+      "nativeCurrency": {
+        "name": "ETH",
+        "symbol": "ETH",
+        "decimals": 18
+      }
+    }
+  ],
+  "headers": {
+    "paymentSignature": "PAYMENT-SIGNATURE",
+    "paymentResponse": "PAYMENT-RESPONSE",
+    "paymentRequired": "PAYMENT-REQUIRED"
+  }
+}
+```
+
+### Get Pricing
+
+<ParamField path="GET /api/x402/pricing" type="endpoint">
+  Get pricing for all x402 endpoints
+</ParamField>
+
+**Response**
+
+```json
+{
+  "routes": [
+    {
+      "route": "/api/x402/chat",
+      "priceUSD": 0.01,
+      "description": "Chat endpoint with AI agent"
+    },
+    {
+      "route": "/api/x402/deep-research/start",
+      "priceUSD": 0.50,
+      "description": "Start deep research job"
+    },
+    {
+      "route": "/api/x402/agents/literature",
+      "priceUSD": 0.05,
+      "description": "Literature search agent"
+    }
+  ],
+  "tools": [
+    {
+      "name": "literature_search",
+      "priceUSD": 0.05,
+      "description": "Search scientific literature"
+    },
+    {
+      "name": "data_analysis",
+      "priceUSD": 0.10,
+      "description": "Analyze datasets"
+    }
+  ]
+}
+```
+
+---
+
+## Payment Flow
+
+### Discovery Phase
+
+1. **Client** requests endpoint without payment
+2. **Server** returns `402 Payment Required` with payment schema
+3. **Client** prepares payment signature
+
+### Payment Phase
+
+4. **Client** signs payment with wallet
+5. **Client** submits request with `PAYMENT-SIGNATURE` header
+6. **Server** validates signature via facilitator
+7. **Server** processes request and returns result
+
+### Flow Diagram
+
+```
+Client                  API Server              Facilitator           Blockchain
+  │                         │                         │                     │
+  ├─GET /api/x402/chat─────>│                         │                     │
+  │                         │                         │                     │
+  │<──402 Payment Required──┤                         │                     │
+  │   (payment schema)      │                         │                     │
+  │                         │                         │                     │
+  ├─Sign payment with wallet│                         │                     │
+  │                         │                         │                     │
+  ├─POST + PAYMENT-SIGNATURE>│                         │                     │
+  │                         │                         │                     │
+  │                         ├─Validate payment────────>│                     │
+  │                         │                         │                     │
+  │                         │                         ├─Check allowance────>│
+  │                         │                         │<────────────────────┤
+  │                         │                         │                     │
+  │                         │                         ├─Settle payment─────>│
+  │                         │                         │<────────────────────┤
+  │                         │                         │                     │
+  │                         │<──Settlement proof──────┤                     │
+  │                         │                         │                     │
+  │<────Response + result────┤                         │                     │
+  │   PAYMENT-RESPONSE      │                         │                     │
+```
+
+---
+
+## Headers
+
+### Request Headers
+
+<ParamField header="PAYMENT-SIGNATURE" type="string" required>
+  Base64-encoded payment signature (EIP-712)
+</ParamField>
+
+Example:
+```
+PAYMENT-SIGNATURE: eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9...
+```
+
+### Response Headers
+
+<ParamField header="PAYMENT-REQUIRED" type="string">
+  Payment schema (returned on 402 errors)
+</ParamField>
+
+<ParamField header="PAYMENT-RESPONSE" type="string">
+  Settlement proof (returned on successful payment)
+</ParamField>
+
+---
+
+## Endpoints
+
+### Chat (Payment-Gated)
+
+<ParamField path="POST /api/x402/chat" type="endpoint">
+  Chat with AI agent (requires payment)
+</ParamField>
+
+**Price**: $0.01 USD
+
+**Discovery Request**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/x402/chat
+```
+
+**Response (402 Payment Required)**
+
+```json
+{
+  "error": "Payment required",
+  "protocol": "x402",
+  "version": 2,
+  "amount": "10000",
+  "asset": "USDC",
+  "recipient": "0x...",
+  "facilitatorUrl": "https://facilitator.x402.ai",
+  "chainId": 8453
+}
+```
+
+**Payment Request**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/x402/chat \
+  -H "PAYMENT-SIGNATURE: BASE64_ENCODED_SIGNATURE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What are the latest findings on CRISPR?",
+    "conversationId": "optional-uuid"
+  }'
+```
+
+**Response (200 OK)**
+
+```json
+{
+  "text": "CRISPR (Clustered Regularly Interspaced Short Palindromic Repeats)...",
+  "userId": "0x...",
+  "conversationId": "uuid",
+  "pollUrl": null
+}
+```
+
+---
+
+### Deep Research (Payment-Gated)
+
+<ParamField path="POST /api/x402/deep-research/start" type="endpoint">
+  Start deep research job (requires payment)
+</ParamField>
+
+**Price**: $0.50 USD
+
+**Request**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/x402/deep-research/start \
+  -H "PAYMENT-SIGNATURE: BASE64_ENCODED_SIGNATURE" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Research the role of mitochondria in aging",
+    "userId": "0x..."
+  }'
+```
+
+**Response**
+
+```json
+{
+  "messageId": "uuid",
+  "pollUrl": "/api/x402/deep-research/status/uuid"
+}
+```
+
+**Status Check (FREE - No Payment)**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/x402/deep-research/status/MESSAGE_ID
+```
+
+<Info>
+  Status checks are **free** and require **no authentication**. The unguessable UUID serves as the authorization token.
+</Info>
+
+---
+
+### Individual Agents (Payment-Gated)
+
+Access individual AI agents directly:
+
+- `POST /api/x402/agents/literature` - $0.05 USD
+- `POST /api/x402/agents/hypothesis` - $0.10 USD
+- `POST /api/x402/agents/analysis` - $0.15 USD
+- `POST /api/x402/agents/discovery` - $0.10 USD
+- `POST /api/x402/agents/reflection` - $0.10 USD
+- `POST /api/x402/agents/planning` - $0.05 USD
+- `POST /api/x402/agents/reply` - $0.05 USD
+
+See [x402 Agents API](/api/x402-agents) for details.
+
+---
+
+## User Management
+
+### Get or Create User
+
+<ParamField path="GET /api/x402/user/:walletAddress" type="endpoint">
+  Get or create user by wallet address
+</ParamField>
+
+**Response**
+
+```json
+{
+  "ok": true,
+  "userId": "uuid",
+  "wallet": "0x...",
+  "isNew": false
+}
+```
+
+Use this to map wallet addresses to user IDs for conversation history.
+
+---
+
+## Payment History
+
+### Get User Payments
+
+<ParamField path="GET /api/x402/payments/:userId" type="endpoint">
+  Get payment history for a user (last 50)
+</ParamField>
+
+**Response**
+
+```json
+{
+  "ok": true,
+  "payments": [
+    {
+      "id": "uuid",
+      "payer": "0x...",
+      "amount": "10000",
+      "asset": "USDC",
+      "route": "/api/x402/chat",
+      "transaction": "0x...",
+      "createdAt": "2024-01-01T12:00:00Z"
+    }
+  ]
+}
+```
+
+### Get Payment Stats
+
+<ParamField path="GET /api/x402/stats/:userId" type="endpoint">
+  Get payment statistics for a user
+</ParamField>
+
+**Response**
+
+```json
+{
+  "ok": true,
+  "stats": {
+    "totalPayments": 42,
+    "totalAmountUSD": "4.20",
+    "lastPaymentAt": "2024-01-01T12:00:00Z",
+    "favoriteEndpoint": "/api/x402/chat"
+  }
+}
+```
+
+---
+
+## Health Check
+
+<ParamField path="GET /api/x402/health" type="endpoint">
+  Check x402 system health
+</ParamField>
+
+**Response**
+
+```json
+{
+  "ok": true,
+  "x402Version": 2,
+  "facilitatorAvailable": true,
+  "supported": {
+    "kinds": [
+      {
+        "network": "Base",
+        "scheme": "exact",
+        "x402Version": 2
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Client Libraries
+
+### JavaScript/TypeScript
+
+```typescript
+import { ethers } from 'ethers';
+
+class X402Client {
+  constructor(
+    private baseUrl: string,
+    private provider: ethers.providers.Web3Provider
+  ) {}
+
+  async chat(message: string): Promise<any> {
+    // 1. Get payment schema
+    const discoveryResponse = await fetch(`${this.baseUrl}/api/x402/chat`);
+    const paymentSchema = await discoveryResponse.json();
+
+    // 2. Sign payment
+    const signer = this.provider.getSigner();
+    const signature = await this.signPayment(paymentSchema, signer);
+
+    // 3. Submit request with payment
+    const response = await fetch(`${this.baseUrl}/api/x402/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'PAYMENT-SIGNATURE': signature,
+      },
+      body: JSON.stringify({ message }),
+    });
+
+    return response.json();
+  }
+
+  private async signPayment(
+    schema: any,
+    signer: ethers.Signer
+  ): Promise<string> {
+    // Implement EIP-712 signing
+    // See facilitator documentation for signature format
+    // ...
+  }
+}
+
+// Usage
+const provider = new ethers.providers.Web3Provider(window.ethereum);
+const client = new X402Client('https://api.bioagents.ai', provider);
+
+const result = await client.chat('What is CRISPR?');
+console.log(result.text);
+```
+
+---
+
+## Error Responses
+
+### 402 Payment Required
+
+```json
+{
+  "error": "Payment required",
+  "protocol": "x402",
+  "version": 2,
+  "amount": "10000",
+  "asset": "USDC",
+  "recipient": "0x...",
+  "facilitatorUrl": "https://facilitator.x402.ai"
+}
+```
+
+### 400 Bad Request - Invalid Payment
+
+```json
+{
+  "error": "Invalid payment signature"
+}
+```
+
+### 503 Service Unavailable
+
+```json
+{
+  "error": "x402 facilitator unavailable"
+}
+```
+
+---
+
+## Network Details
+
+### Base Mainnet
+
+- **Chain ID**: 8453
+- **RPC**: `https://mainnet.base.org`
+- **Explorer**: `https://basescan.org`
+- **USDC**: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+
+### Base Sepolia (Testnet)
+
+- **Chain ID**: 84532
+- **RPC**: `https://sepolia.base.org`
+- **Explorer**: `https://sepolia.basescan.org`
+- **USDC**: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+
+---
+
+## Configuration
+
+Environment variables:
+
+```bash
+# Enable x402
+X402_ENABLED=true
+
+# Network (mainnet or testnet)
+X402_ENVIRONMENT=mainnet
+
+# Payment recipient address
+X402_PAYMENT_ADDRESS=0x...
+
+# Facilitator URL
+X402_FACILITATOR_URL=https://facilitator.x402.ai
+```

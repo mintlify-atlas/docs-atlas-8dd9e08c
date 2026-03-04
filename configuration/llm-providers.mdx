@@ -1,0 +1,472 @@
+---
+title: LLM Providers
+description: Configure OpenAI, Anthropic, Google, and OpenRouter for BioAgents
+---
+
+BioAgents supports multiple LLM providers with automatic fallback and retry logic. Each agent type can be configured with a specific provider and model.
+
+## Supported Providers
+
+<CardGroup cols={2}>
+  <Card title="OpenAI" icon="openai">
+    GPT-4, GPT-3.5, and GPT-5 models
+  </Card>
+  <Card title="Anthropic" icon="message-bot">
+    Claude 3 Opus, Sonnet, and Haiku
+  </Card>
+  <Card title="Google" icon="google">
+    Gemini Pro and Gemini Ultra
+  </Card>
+  <Card title="OpenRouter" icon="route">
+    Access to 100+ models from multiple providers
+  </Card>
+</CardGroup>
+
+## Provider Configuration
+
+### OpenAI
+
+<Steps>
+  <Step title="Get API Key">
+    Sign up at [OpenAI Platform](https://platform.openai.com/) and create an API key.
+  </Step>
+  
+  <Step title="Set Environment Variable">
+    ```bash
+    OPENAI_API_KEY=sk-...
+    ```
+  </Step>
+  
+  <Step title="Configure Models">
+    ```bash
+    REPLY_LLM_PROVIDER=openai
+    REPLY_LLM_MODEL=gpt-4
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="Available OpenAI Models">
+  - `gpt-5` - Latest GPT-5 model
+  - `gpt-4-turbo` - GPT-4 Turbo with 128k context
+  - `gpt-4` - GPT-4 with 8k context
+  - `gpt-3.5-turbo` - Fast and cost-effective
+</Accordion>
+
+### Anthropic
+
+<Steps>
+  <Step title="Get API Key">
+    Sign up at [Anthropic Console](https://console.anthropic.com/) and create an API key.
+  </Step>
+  
+  <Step title="Set Environment Variable">
+    ```bash
+    ANTHROPIC_API_KEY=sk-ant-...
+    ```
+  </Step>
+  
+  <Step title="Configure Models">
+    ```bash
+    REPLY_LLM_PROVIDER=anthropic
+    REPLY_LLM_MODEL=claude-3-opus-20240229
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="Available Anthropic Models">
+  - `claude-sonnet-4-5-20250929` - Latest Claude Sonnet 4.5
+  - `claude-3-opus-20240229` - Most capable model
+  - `claude-3-sonnet-20240229` - Balanced performance
+  - `claude-3-haiku-20240307` - Fast and cost-effective
+</Accordion>
+
+### Google
+
+<Steps>
+  <Step title="Get API Key">
+    Enable the Generative Language API in [Google AI Studio](https://makersuite.google.com/app/apikey).
+  </Step>
+  
+  <Step title="Set Environment Variable">
+    ```bash
+    GOOGLE_API_KEY=AIza...
+    ```
+  </Step>
+  
+  <Step title="Configure Models">
+    ```bash
+    REPLY_LLM_PROVIDER=google
+    REPLY_LLM_MODEL=gemini-pro
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="Available Google Models">
+  - `gemini-pro` - Balanced performance
+  - `gemini-ultra` - Most capable model
+</Accordion>
+
+### OpenRouter
+
+<Steps>
+  <Step title="Get API Key">
+    Sign up at [OpenRouter](https://openrouter.ai/) and create an API key.
+  </Step>
+  
+  <Step title="Set Environment Variable">
+    ```bash
+    OPENROUTER_API_KEY=sk-or-...
+    ```
+  </Step>
+  
+  <Step title="Configure Models">
+    ```bash
+    REPLY_LLM_PROVIDER=openrouter
+    REPLY_LLM_MODEL=anthropic/claude-3-opus
+    ```
+  </Step>
+</Steps>
+
+<Accordion title="OpenRouter Model Format">
+  OpenRouter uses the format `provider/model-name`:
+  - `anthropic/claude-3-opus`
+  - `openai/gpt-4`
+  - `google/gemini-pro`
+  - `meta-llama/llama-3-70b`
+  
+  See [OpenRouter Models](https://openrouter.ai/models) for the full list.
+</Accordion>
+
+## Agent-Specific Configuration
+
+BioAgents uses different LLMs for different agent types to optimize for cost and performance.
+
+### Reply Agent (Chat)
+
+Generates conversational responses to user messages.
+
+```bash
+REPLY_LLM_PROVIDER=openai
+REPLY_LLM_MODEL=gpt-4
+```
+
+<Tip>
+  Use a fast model like `gpt-3.5-turbo` or `claude-3-haiku` for cost-effective chat.
+</Tip>
+
+### Hypothesis Agent
+
+Synthesizes research outputs into scientific claims.
+
+```bash
+HYP_LLM_PROVIDER=anthropic
+HYP_LLM_MODEL=claude-3-opus-20240229
+```
+
+<Tip>
+  Use a capable reasoning model like `claude-3-opus` or `gpt-4` for hypothesis generation.
+</Tip>
+
+### Planning Agent
+
+Decides what research tasks to execute.
+
+```bash
+PLANNING_LLM_PROVIDER=openai
+PLANNING_LLM_MODEL=gpt-4
+```
+
+<Tip>
+  Use a strong reasoning model for planning. GPT-4 or Claude Opus work well.
+</Tip>
+
+### Structured Output Agent
+
+Generates structured data (JSON, etc.).
+
+```bash
+STRUCTURED_LLM_PROVIDER=openai
+STRUCTURED_LLM_MODEL=gpt-4
+```
+
+<Info>
+  OpenAI models have native JSON mode support, making them ideal for structured output.
+</Info>
+
+### Continue Research Agent
+
+Decides whether to continue autonomous research.
+
+```bash
+CONTINUE_RESEARCH_LLM_PROVIDER=anthropic
+CONTINUE_RESEARCH_LLM_MODEL=claude-sonnet-4-5-20250929
+```
+
+## Implementation Details
+
+BioAgents implements a robust LLM system with adapters for each provider.
+
+### Provider Adapter Pattern
+
+Each provider has an adapter that implements the `LLMAdapter` interface:
+
+```typescript src/llm/provider.ts
+private createAdapter(provider: LLMProvider): LLMAdapter {
+  switch (provider.name) {
+    case "openai":
+      return new OpenAIAdapter(provider);
+    case "google":
+      return new GoogleAdapter(provider);
+    case "anthropic":
+      return new AnthropicAdapter(provider);
+    case "openrouter":
+      return new OpenRouterAdapter(provider);
+    default:
+      throw new Error(`Unsupported provider: ${provider.name}`);
+  }
+}
+```
+
+### Automatic Retry & Fallback
+
+BioAgents automatically retries failed requests and falls back to alternative providers:
+
+```typescript src/llm/provider.ts
+async createChatCompletion(request: LLMRequest): Promise<LLMResponse> {
+  const startTime = Date.now();
+
+  try {
+    // Try with retries on primary provider
+    const result = await withRetry(
+      () => this.adapter.createChatCompletion(request),
+      this.providerName
+    );
+
+    const duration = Date.now() - startTime;
+    this.trackTokenUsage(result, request, duration);
+    return result;
+  } catch (error: any) {
+    // Check if we need to try fallback provider
+    if (error.requiresFallback) {
+      return this.attemptFallbackCompletion(request, startTime, error);
+    }
+    throw error;
+  }
+}
+```
+
+### Finish Reason Monitoring
+
+BioAgents monitors response finish reasons to detect truncation:
+
+```typescript src/llm/provider.ts
+private static readonly NORMAL_FINISH_REASONS = new Set([
+  "stop",        // OpenAI, OpenRouter
+  "end_turn",    // Anthropic
+  "STOP",        // Google
+]);
+
+private checkFinishReason(result: LLMResponse, request: LLMRequest): void {
+  if (!result.finishReason) return;
+
+  const isNormal = LLM.NORMAL_FINISH_REASONS.has(result.finishReason);
+  if (!isNormal) {
+    logger.warn(
+      {
+        finishReason: result.finishReason,
+        provider: this.providerName,
+        model: request.model,
+        maxTokens: request.maxTokens,
+      },
+      "llm_response_truncated_or_abnormal_finish"
+    );
+  }
+}
+```
+
+### Token Usage Tracking
+
+All LLM calls track token usage in the database:
+
+```typescript src/llm/provider.ts
+private trackTokenUsage(
+  result: LLMResponse,
+  request: LLMRequest,
+  duration: number,
+  providerOverride?: string
+): void {
+  if (
+    result.usage &&
+    request.usageType &&
+    (request.messageId || request.paperId)
+  ) {
+    createTokenUsage({
+      message_id: request.messageId,
+      paper_id: request.paperId,
+      type: request.usageType,
+      provider: providerOverride || this.providerName,
+      model: request.model,
+      prompt_tokens: result.usage.promptTokens,
+      completion_tokens: result.usage.completionTokens,
+      total_tokens: result.usage.totalTokens,
+      duration_ms: duration,
+    });
+  }
+}
+```
+
+## Cost Optimization Strategies
+
+<AccordionGroup>
+  <Accordion title="Use Different Models per Agent">
+    Configure cost-effective models for high-volume tasks:
+    
+    ```bash
+    # Cheap for chat
+    REPLY_LLM_PROVIDER=openai
+    REPLY_LLM_MODEL=gpt-3.5-turbo
+    
+    # Expensive for critical reasoning
+    HYP_LLM_PROVIDER=anthropic
+    HYP_LLM_MODEL=claude-3-opus-20240229
+    ```
+  </Accordion>
+  
+  <Accordion title="Use OpenRouter for Rate Limits">
+    OpenRouter provides access to the same models with higher rate limits:
+    
+    ```bash
+    REPLY_LLM_PROVIDER=openrouter
+    REPLY_LLM_MODEL=anthropic/claude-3-opus
+    ```
+  </Accordion>
+  
+  <Accordion title="Monitor Token Usage">
+    Track token usage in the database to identify expensive operations:
+    
+    ```sql
+    SELECT 
+      type,
+      provider,
+      model,
+      AVG(total_tokens) as avg_tokens,
+      SUM(total_tokens) as total_tokens
+    FROM token_usage
+    GROUP BY type, provider, model
+    ORDER BY total_tokens DESC;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Rate Limit Errors">
+    **Symptom**: `429 Too Many Requests` errors
+    
+    **Solutions**:
+    1. Increase retry delay in `src/llm/retry.ts`
+    2. Use OpenRouter as an alternative
+    3. Reduce concurrent requests with `CHAT_QUEUE_CONCURRENCY`
+  </Accordion>
+  
+  <Accordion title="Model Not Found">
+    **Symptom**: `404 Model not found` errors
+    
+    **Solutions**:
+    1. Verify model name matches provider documentation
+    2. Check API key has access to the model
+    3. For OpenRouter, use `provider/model-name` format
+  </Accordion>
+  
+  <Accordion title="Response Truncation">
+    **Symptom**: Incomplete responses with `length` finish reason
+    
+    **Solutions**:
+    1. Increase `maxTokens` in the request
+    2. Use a model with larger context window
+    3. Simplify the prompt to reduce input tokens
+  </Accordion>
+  
+  <Accordion title="API Key Invalid">
+    **Symptom**: `401 Unauthorized` errors
+    
+    **Solutions**:
+    1. Verify API key is correct and not expired
+    2. Check environment variable is loaded: `echo $OPENAI_API_KEY`
+    3. Restart server after changing `.env`
+  </Accordion>
+</AccordionGroup>
+
+## Example Configurations
+
+<CodeGroup>
+
+```bash Cost-Optimized
+# Use cheap models for most tasks
+REPLY_LLM_PROVIDER=openai
+REPLY_LLM_MODEL=gpt-3.5-turbo
+
+HYP_LLM_PROVIDER=openai
+HYP_LLM_MODEL=gpt-4
+
+PLANNING_LLM_PROVIDER=anthropic
+PLANNING_LLM_MODEL=claude-3-haiku-20240307
+
+STRUCTURED_LLM_PROVIDER=openai
+STRUCTURED_LLM_MODEL=gpt-3.5-turbo
+
+CONTINUE_RESEARCH_LLM_PROVIDER=anthropic
+CONTINUE_RESEARCH_LLM_MODEL=claude-3-haiku-20240307
+```
+
+```bash Performance-Optimized
+# Use best models for all tasks
+REPLY_LLM_PROVIDER=anthropic
+REPLY_LLM_MODEL=claude-3-opus-20240229
+
+HYP_LLM_PROVIDER=anthropic
+HYP_LLM_MODEL=claude-3-opus-20240229
+
+PLANNING_LLM_PROVIDER=openai
+PLANNING_LLM_MODEL=gpt-4
+
+STRUCTURED_LLM_PROVIDER=openai
+STRUCTURED_LLM_MODEL=gpt-4
+
+CONTINUE_RESEARCH_LLM_PROVIDER=anthropic
+CONTINUE_RESEARCH_LLM_MODEL=claude-sonnet-4-5-20250929
+```
+
+```bash OpenRouter-Only
+# Use OpenRouter for all providers
+OPENROUTER_API_KEY=sk-or-...
+
+REPLY_LLM_PROVIDER=openrouter
+REPLY_LLM_MODEL=anthropic/claude-3-opus
+
+HYP_LLM_PROVIDER=openrouter
+HYP_LLM_MODEL=anthropic/claude-3-opus
+
+PLANNING_LLM_PROVIDER=openrouter
+PLANNING_LLM_MODEL=openai/gpt-4
+
+STRUCTURED_LLM_PROVIDER=openrouter
+STRUCTURED_LLM_MODEL=openai/gpt-4
+
+CONTINUE_RESEARCH_LLM_PROVIDER=openrouter
+CONTINUE_RESEARCH_LLM_MODEL=anthropic/claude-3-opus
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/configuration/environment">
+    View all configuration options
+  </Card>
+  <Card title="Authentication" icon="lock" href="/configuration/authentication">
+    Configure JWT or payment-based auth
+  </Card>
+</CardGroup>

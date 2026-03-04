@@ -1,0 +1,546 @@
+---
+title: 'b402 Payment Protocol'
+description: 'Pay-per-request API access using USDT on BNB Chain'
+---
+
+## Overview
+
+The b402 payment protocol enables pay-per-request API access using USDT on BNB Chain (or BNB Testnet). Similar to x402, clients submit cryptographic payment proofs instead of API keys.
+
+<Info>
+  b402 is the **BNB Chain variant** of the x402 protocol, using USDT instead of USDC.
+</Info>
+
+## Protocol Differences
+
+| Feature | x402 | b402 |
+|---------|------|------|
+| Network | Base | BNB Chain |
+| Asset | USDC (6 decimals) | USDT (18 decimals) |
+| Scheme | Exact | Allowance |
+| Version | V2 | V1 |
+
+## Configuration
+
+### Get Config
+
+<ParamField path="GET /api/b402/config" type="endpoint">
+  Get b402 configuration and network details
+</ParamField>
+
+**Response**
+
+```json
+{
+  "enabled": true,
+  "protocol": "b402",
+  "network": "BNB Chain",
+  "environment": "mainnet",
+  "asset": "USDT",
+  "paymentAddress": "0x...",
+  "facilitatorUrl": "https://facilitator.b402.ai",
+  "tokenAddress": "0x55d398326f99059fF775485246999027B3197955",
+  "chainId": 56,
+  "rpcUrl": "https://bsc-dataseed.binance.org",
+  "explorer": "https://bscscan.com",
+  "relayerAddress": "0x...",
+  "availableNetworks": [
+    {
+      "id": "bsc",
+      "protocol": "b402",
+      "name": "BNB Chain",
+      "chainId": 56,
+      "tokens": [
+        {
+          "symbol": "USDT",
+          "address": "0x55d398326f99059fF775485246999027B3197955",
+          "decimals": 18
+        }
+      ],
+      "facilitatorUrl": "https://facilitator.b402.ai",
+      "relayerAddress": "0x...",
+      "nativeCurrency": {
+        "name": "BNB",
+        "symbol": "BNB",
+        "decimals": 18
+      }
+    }
+  ]
+}
+```
+
+### Get Supported Payment Kinds
+
+<ParamField path="GET /api/b402/supported" type="endpoint">
+  Query facilitator for supported payment schemes
+</ParamField>
+
+**Response**
+
+```json
+{
+  "kinds": [
+    {
+      "network": "BNB Chain",
+      "scheme": "allowance",
+      "x402Version": 1,
+      "extra": {
+        "facilitatorAddress": "0x...",
+        "tokenAddress": "0x55d398326f99059fF775485246999027B3197955",
+        "tokenSymbol": "USDT",
+        "tokenDecimals": 18,
+        "chainId": 56
+      }
+    }
+  ]
+}
+```
+
+### Get Pricing
+
+<ParamField path="GET /api/b402/pricing" type="endpoint">
+  Get pricing for all b402 endpoints
+</ParamField>
+
+**Response**
+
+```json
+{
+  "routes": [
+    {
+      "route": "/api/b402/chat",
+      "priceUSD": 0.01,
+      "description": "Chat endpoint with AI agent"
+    },
+    {
+      "route": "/api/b402/deep-research/start",
+      "priceUSD": 0.50,
+      "description": "Start deep research job"
+    }
+  ]
+}
+```
+
+---
+
+## Payment Flow (Allowance Scheme)
+
+The b402 protocol uses an **allowance-based** payment scheme:
+
+1. **One-time Setup**: User approves USDT allowance to facilitator contract
+2. **Per Request**: User signs payment intent (no blockchain transaction needed)
+3. **Settlement**: Facilitator settles payment on-chain asynchronously
+
+### Flow Diagram
+
+```
+Client                  API Server              Facilitator           BNB Chain
+  │                         │                         │                     │
+  ├─(One-time) Approve USDT allowance───────────────────────────────────────>│
+  │                         │                         │                     │
+  ├─GET /api/b402/chat─────>│                         │                     │
+  │                         │                         │                     │
+  │<──Returns 402 schema────┤                         │                     │
+  │                         │                         │                     │
+  ├─Sign payment intent     │                         │                     │
+  │  (off-chain)            │                         │                     │
+  │                         │                         │                     │
+  ├─POST + X-PAYMENT────────>│                         │                     │
+  │                         │                         │                     │
+  │                         ├─Validate signature──────>│                     │
+  │                         │                         │                     │
+  │                         │                         ├─Check allowance────>│
+  │                         │                         │<────────────────────┤
+  │                         │                         │                     │
+  │                         │<──Settlement proof──────┤                     │
+  │                         │                         │                     │
+  │<────Response + result────┤                         │                     │
+  │                         │                         │                     │
+  │                         │                         ├─(Async) Settle─────>│
+  │                         │                         │  transferFrom()     │
+```
+
+---
+
+## Headers
+
+### Request Headers
+
+<ParamField header="X-PAYMENT" type="string" required>
+  Base64-encoded payment proof
+</ParamField>
+
+Example:
+```
+X-PAYMENT: eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9...
+```
+
+---
+
+## Endpoints
+
+### Chat (Payment-Gated)
+
+<ParamField path="POST /api/b402/chat" type="endpoint">
+  Chat with AI agent (requires payment)
+</ParamField>
+
+**Price**: $0.01 USD
+
+**Discovery Request**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/b402/chat
+```
+
+**Response**
+
+```json
+{
+  "message": "This endpoint requires POST method with b402 payment.",
+  "apiDocumentation": "https://your-docs-url.com/api",
+  "paymentInfo": "Include X-PAYMENT header with valid payment proof (BNB Chain)"
+}
+```
+
+**Payment Request**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/b402/chat \
+  -H "X-PAYMENT: BASE64_ENCODED_PROOF" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What are the latest findings on CRISPR?",
+    "conversationId": "optional-uuid"
+  }'
+```
+
+**Response (200 OK)**
+
+```json
+{
+  "text": "CRISPR (Clustered Regularly Interspaced Short Palindromic Repeats)...",
+  "userId": "0x...",
+  "conversationId": "uuid",
+  "pollUrl": null
+}
+```
+
+---
+
+### Deep Research (Payment-Gated)
+
+<ParamField path="POST /api/b402/deep-research/start" type="endpoint">
+  Start deep research job (requires payment)
+</ParamField>
+
+**Price**: $0.50 USD
+
+**Request**
+
+```bash
+curl -X POST https://api.bioagents.ai/api/b402/deep-research/start \
+  -H "X-PAYMENT: BASE64_ENCODED_PROOF" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Research the role of mitochondria in aging",
+    "userId": "0x..."
+  }'
+```
+
+**Response**
+
+```json
+{
+  "messageId": "uuid",
+  "pollUrl": "/api/b402/deep-research/status/uuid"
+}
+```
+
+**Status Check (FREE - No Payment)**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/b402/deep-research/status/MESSAGE_ID?userId=USER_ID
+```
+
+<Info>
+  Status checks are **free** but require `userId` query parameter for ownership validation.
+</Info>
+
+---
+
+## User Management
+
+### Get or Create User
+
+<ParamField path="GET /api/b402/user/:walletAddress" type="endpoint">
+  Get or create user by wallet address
+</ParamField>
+
+**Response**
+
+```json
+{
+  "ok": true,
+  "userId": "uuid",
+  "wallet": "0x...",
+  "isNew": false
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X GET https://api.bioagents.ai/api/b402/user/0xYourWalletAddress
+```
+
+---
+
+## Health Check
+
+<ParamField path="GET /api/b402/health" type="endpoint">
+  Check b402 system health
+</ParamField>
+
+**Response**
+
+```json
+{
+  "ok": true,
+  "facilitatorAvailable": true,
+  "facilitatorUrl": "https://facilitator.b402.ai"
+}
+```
+
+---
+
+## Allowance Setup
+
+Before making b402 requests, approve USDT allowance to the facilitator:
+
+### Using ethers.js
+
+```typescript
+import { ethers } from 'ethers';
+
+const USDT_ADDRESS = '0x55d398326f99059fF775485246999027B3197955';
+const FACILITATOR_ADDRESS = '0x...'; // From /api/b402/supported
+
+async function approveAllowance(
+  provider: ethers.providers.Web3Provider,
+  amount: string // In USDT (18 decimals)
+) {
+  const signer = provider.getSigner();
+  
+  // USDT contract ABI (simplified)
+  const usdtAbi = [
+    'function approve(address spender, uint256 amount) returns (bool)',
+    'function allowance(address owner, address spender) view returns (uint256)'
+  ];
+  
+  const usdt = new ethers.Contract(USDT_ADDRESS, usdtAbi, signer);
+  
+  // Check current allowance
+  const currentAllowance = await usdt.allowance(
+    await signer.getAddress(),
+    FACILITATOR_ADDRESS
+  );
+  
+  console.log('Current allowance:', ethers.utils.formatEther(currentAllowance));
+  
+  // Approve if needed
+  if (currentAllowance.lt(ethers.utils.parseEther(amount))) {
+    const tx = await usdt.approve(
+      FACILITATOR_ADDRESS,
+      ethers.utils.parseEther(amount)
+    );
+    
+    console.log('Approval tx:', tx.hash);
+    await tx.wait();
+    console.log('Allowance approved!');
+  }
+}
+
+// Usage: Approve 100 USDT
+await approveAllowance(provider, '100');
+```
+
+---
+
+## Client Example
+
+### JavaScript/TypeScript
+
+```typescript
+import { ethers } from 'ethers';
+
+class B402Client {
+  constructor(
+    private baseUrl: string,
+    private provider: ethers.providers.Web3Provider
+  ) {}
+
+  async chat(message: string): Promise<any> {
+    // 1. Sign payment intent
+    const paymentProof = await this.createPaymentProof(
+      '/api/b402/chat',
+      '0.01' // USD
+    );
+
+    // 2. Submit request with payment
+    const response = await fetch(`${this.baseUrl}/api/b402/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-PAYMENT': paymentProof,
+      },
+      body: JSON.stringify({ message }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  private async createPaymentProof(
+    route: string,
+    amountUSD: string
+  ): Promise<string> {
+    // Implement payment proof generation
+    // See facilitator documentation for format
+    // ...
+  }
+}
+
+// Usage
+const provider = new ethers.providers.Web3Provider(window.ethereum);
+const client = new B402Client('https://api.bioagents.ai', provider);
+
+const result = await client.chat('What is CRISPR?');
+console.log(result.text);
+```
+
+---
+
+## Error Responses
+
+### 400 Bad Request - Missing Payment
+
+```json
+{
+  "error": "Missing X-PAYMENT header"
+}
+```
+
+### 400 Bad Request - Invalid Payment
+
+```json
+{
+  "error": "Invalid payment proof"
+}
+```
+
+### 402 Payment Required - Insufficient Allowance
+
+```json
+{
+  "error": "Insufficient USDT allowance",
+  "message": "Please approve USDT allowance to facilitator",
+  "facilitatorAddress": "0x...",
+  "requiredAmount": "10000000000000000"
+}
+```
+
+### 503 Service Unavailable
+
+```json
+{
+  "ok": false,
+  "facilitatorAvailable": false,
+  "facilitatorUrl": "https://facilitator.b402.ai"
+}
+```
+
+---
+
+## Network Details
+
+### BNB Chain Mainnet
+
+- **Chain ID**: 56
+- **RPC**: `https://bsc-dataseed.binance.org`
+- **Explorer**: `https://bscscan.com`
+- **USDT**: `0x55d398326f99059fF775485246999027B3197955`
+
+### BNB Testnet
+
+- **Chain ID**: 97
+- **RPC**: `https://data-seed-prebsc-1-s1.binance.org:8545`
+- **Explorer**: `https://testnet.bscscan.com`
+- **USDT**: `0x337610d27c682E347C9cD60BD4b3b107C9d34dDd`
+
+---
+
+## Configuration
+
+Environment variables:
+
+```bash
+# Enable b402
+B402_ENABLED=true
+
+# Network (mainnet or testnet)
+B402_ENVIRONMENT=mainnet
+
+# Payment recipient address
+B402_PAYMENT_ADDRESS=0x...
+
+# Facilitator URL
+B402_FACILITATOR_URL=https://facilitator.b402.ai
+
+# Relayer address (from facilitator)
+B402_RELAYER_ADDRESS=0x...
+```
+
+---
+
+## Best Practices
+
+### 1. Maintain Sufficient Allowance
+
+Approve a reasonable allowance upfront to avoid frequent approval transactions:
+
+```typescript
+// ✅ Good: Approve enough for ~100 requests
+await approveAllowance(provider, '1.0'); // 1 USDT = 100 requests @ $0.01
+
+// ❌ Bad: Approve exact amount per request
+await approveAllowance(provider, '0.01'); // Requires approval every time
+```
+
+### 2. Check Allowance Before Requests
+
+```typescript
+async function ensureAllowance(minAmount: string) {
+  const allowance = await usdt.allowance(userAddress, facilitatorAddress);
+  
+  if (allowance.lt(ethers.utils.parseEther(minAmount))) {
+    await approveAllowance(provider, '10.0'); // Top up
+  }
+}
+```
+
+### 3. Handle Settlement Delays
+
+Allowance-based payments settle asynchronously. Your request succeeds immediately, but on-chain settlement happens later:
+
+```typescript
+// Request succeeds immediately
+const result = await client.chat('Hello');
+console.log('Response:', result.text);
+
+// Settlement happens in background
+// No need to wait for blockchain confirmation
+```

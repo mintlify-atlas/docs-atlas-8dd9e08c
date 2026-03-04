@@ -1,0 +1,576 @@
+---
+title: 'Job Management API'
+description: 'REST API for BullMQ job status and management'
+---
+
+## Overview
+
+The Job Management API provides programmatic access to BullMQ job data. Use this for custom dashboards, monitoring systems, or automated job management.
+
+<Info>
+  For a web UI, see [Queue Dashboard](/api/queue-dashboard). This API is for programmatic access.
+</Info>
+
+## Authentication
+
+All endpoints require admin authentication via the `X-Admin-Key` header:
+
+```bash
+X-Admin-Key: your-admin-password
+```
+
+Set via `ADMIN_API_KEY` or `ADMIN_PASSWORD` environment variable.
+
+---
+
+## Endpoints
+
+### List Jobs
+
+<ParamField path="GET /api/admin/jobs" type="endpoint">
+  List jobs for a queue with optional filtering
+</ParamField>
+
+**Query Parameters**
+
+<ParamField query="queue" type="string" default="deep-research">
+  Queue name: `chat`, `deep-research`, `paper-generation`, or `file-process`
+</ParamField>
+
+<ParamField query="status" type="string" default="all">
+  Job status filter: `all`, `active`, `waiting`, `completed`, `failed`, or `delayed`
+</ParamField>
+
+<ParamField query="limit" type="number" default="50">
+  Maximum number of jobs to return
+</ParamField>
+
+**Response**
+
+```json
+{
+  "queue": "deep-research",
+  "jobs": [
+    {
+      "id": "uuid",
+      "name": "deep-research-job",
+      "data": {
+        "messageId": "uuid",
+        "userId": "uuid",
+        "message": "Research CRISPR applications"
+      },
+      "state": "completed",
+      "progress": 100,
+      "attemptsMade": 1,
+      "processedOn": 1704110400000,
+      "finishedOn": 1704110460000,
+      "timestamp": 1704110400000
+    }
+  ],
+  "counts": {
+    "waiting": 5,
+    "active": 2,
+    "completed": 42,
+    "failed": 1,
+    "delayed": 0
+  }
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X GET "https://api.bioagents.ai/api/admin/jobs?queue=deep-research&status=active&limit=10" \
+  -H "X-Admin-Key: YOUR_ADMIN_PASSWORD"
+```
+
+---
+
+### Get Job Details
+
+<ParamField path="GET /api/admin/jobs/:jobId" type="endpoint">
+  Get detailed information for a specific job
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="jobId" type="string" required>
+  Job ID (UUID)
+</ParamField>
+
+**Query Parameters**
+
+<ParamField query="queue" type="string" default="deep-research">
+  Queue name the job belongs to
+</ParamField>
+
+**Response**
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "deep-research-job",
+  "data": {
+    "messageId": "660e8400-e29b-41d4-a716-446655440000",
+    "userId": "770e8400-e29b-41d4-a716-446655440000",
+    "message": "Research CRISPR applications in medicine",
+    "conversationId": "880e8400-e29b-41d4-a716-446655440000"
+  },
+  "state": "completed",
+  "progress": 100,
+  "attemptsMade": 1,
+  "processedOn": 1704110400000,
+  "finishedOn": 1704110460000,
+  "timestamp": 1704110400000
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X GET "https://api.bioagents.ai/api/admin/jobs/550e8400-e29b-41d4-a716-446655440000?queue=deep-research" \
+  -H "X-Admin-Key: YOUR_ADMIN_PASSWORD"
+```
+
+---
+
+### Retry Failed Job
+
+<ParamField path="POST /api/admin/jobs/:jobId/retry" type="endpoint">
+  Retry a failed job
+</ParamField>
+
+**Path Parameters**
+
+<ParamField path="jobId" type="string" required>
+  Job ID to retry
+</ParamField>
+
+**Query Parameters**
+
+<ParamField query="queue" type="string" default="deep-research">
+  Queue name the job belongs to
+</ParamField>
+
+**Response**
+
+```json
+{
+  "success": true,
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "message": "Job queued for retry"
+}
+```
+
+**cURL Example**
+
+```bash
+curl -X POST "https://api.bioagents.ai/api/admin/jobs/JOB_ID/retry?queue=deep-research" \
+  -H "X-Admin-Key: YOUR_ADMIN_PASSWORD"
+```
+
+---
+
+## Job States
+
+### State Values
+
+| State | Description |
+|-------|-------------|
+| `waiting` | Job is queued, awaiting processing |
+| `active` | Job is currently being processed by a worker |
+| `completed` | Job finished successfully |
+| `failed` | Job failed after all retry attempts |
+| `delayed` | Job is scheduled for future processing |
+
+### State Transitions
+
+```
+waiting → active → completed
+            ↓
+          failed (after 3 attempts)
+```
+
+---
+
+## Response Fields
+
+### Job Object
+
+<ResponseField name="id" type="string">
+  Unique job identifier (UUID)
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Job type name (e.g., `deep-research-job`, `paper-generation-job`)
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Job input data (varies by job type)
+</ResponseField>
+
+<ResponseField name="state" type="string">
+  Current job state: `waiting`, `active`, `completed`, `failed`, or `delayed`
+</ResponseField>
+
+<ResponseField name="progress" type="number">
+  Job progress percentage (0-100)
+</ResponseField>
+
+<ResponseField name="attemptsMade" type="number">
+  Number of processing attempts (increments on retry)
+</ResponseField>
+
+<ResponseField name="processedOn" type="number" optional>
+  Timestamp when processing started (Unix milliseconds)
+</ResponseField>
+
+<ResponseField name="finishedOn" type="number" optional>
+  Timestamp when job finished (Unix milliseconds)
+</ResponseField>
+
+<ResponseField name="failedReason" type="string" optional>
+  Error message if job failed
+</ResponseField>
+
+<ResponseField name="timestamp" type="number">
+  Timestamp when job was created (Unix milliseconds)
+</ResponseField>
+
+---
+
+## Usage Examples
+
+### Monitor Active Jobs
+
+```bash
+#!/bin/bash
+
+ADMIN_KEY="your-admin-password"
+API_URL="https://api.bioagents.ai"
+
+# Get active jobs
+RESPONSE=$(curl -s -X GET "$API_URL/api/admin/jobs?queue=deep-research&status=active" \
+  -H "X-Admin-Key: $ADMIN_KEY")
+
+# Count active jobs
+ACTIVE_COUNT=$(echo $RESPONSE | jq '.counts.active')
+
+echo "Active jobs: $ACTIVE_COUNT"
+
+# List active job IDs
+echo $RESPONSE | jq -r '.jobs[].id'
+```
+
+### Retry All Failed Jobs
+
+```bash
+#!/bin/bash
+
+ADMIN_KEY="your-admin-password"
+API_URL="https://api.bioagents.ai"
+QUEUE="deep-research"
+
+# Get failed jobs
+FAILED=$(curl -s -X GET "$API_URL/api/admin/jobs?queue=$QUEUE&status=failed" \
+  -H "X-Admin-Key: $ADMIN_KEY")
+
+# Retry each failed job
+echo $FAILED | jq -r '.jobs[].id' | while read JOB_ID; do
+  echo "Retrying job: $JOB_ID"
+  
+  curl -X POST "$API_URL/api/admin/jobs/$JOB_ID/retry?queue=$QUEUE" \
+    -H "X-Admin-Key: $ADMIN_KEY"
+  
+  echo ""
+done
+```
+
+### JavaScript/TypeScript Client
+
+```typescript
+class JobManagementClient {
+  constructor(
+    private baseUrl: string,
+    private adminKey: string
+  ) {}
+
+  async listJobs(queue: string, status: string = 'all', limit: number = 50) {
+    const url = `${this.baseUrl}/api/admin/jobs?queue=${queue}&status=${status}&limit=${limit}`;
+    
+    const response = await fetch(url, {
+      headers: { 'X-Admin-Key': this.adminKey },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to list jobs: ${response.statusText}`);
+    }
+    
+    return response.json();
+  }
+
+  async getJob(jobId: string, queue: string = 'deep-research') {
+    const url = `${this.baseUrl}/api/admin/jobs/${jobId}?queue=${queue}`;
+    
+    const response = await fetch(url, {
+      headers: { 'X-Admin-Key': this.adminKey },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to get job: ${response.statusText}`);
+    }
+    
+    return response.json();
+  }
+
+  async retryJob(jobId: string, queue: string = 'deep-research') {
+    const url = `${this.baseUrl}/api/admin/jobs/${jobId}/retry?queue=${queue}`;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'X-Admin-Key': this.adminKey },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to retry job: ${response.statusText}`);
+    }
+    
+    return response.json();
+  }
+
+  async getQueueStats(queue: string) {
+    const data = await this.listJobs(queue, 'all', 1);
+    return data.counts;
+  }
+}
+
+// Usage
+const client = new JobManagementClient(
+  'https://api.bioagents.ai',
+  process.env.ADMIN_API_KEY!
+);
+
+// Get queue stats
+const stats = await client.getQueueStats('deep-research');
+console.log('Queue stats:', stats);
+
+// List active jobs
+const activeJobs = await client.listJobs('deep-research', 'active');
+console.log(`Active jobs: ${activeJobs.jobs.length}`);
+
+// Retry a failed job
+await client.retryJob('550e8400-e29b-41d4-a716-446655440000');
+```
+
+### Python Client
+
+```python
+import requests
+from typing import Dict, List, Optional
+
+class JobManagementClient:
+    def __init__(self, base_url: str, admin_key: str):
+        self.base_url = base_url
+        self.headers = {"X-Admin-Key": admin_key}
+    
+    def list_jobs(
+        self,
+        queue: str = "deep-research",
+        status: str = "all",
+        limit: int = 50
+    ) -> Dict:
+        """List jobs for a queue"""
+        url = f"{self.base_url}/api/admin/jobs"
+        params = {"queue": queue, "status": status, "limit": limit}
+        
+        response = requests.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    
+    def get_job(self, job_id: str, queue: str = "deep-research") -> Dict:
+        """Get job details"""
+        url = f"{self.base_url}/api/admin/jobs/{job_id}"
+        params = {"queue": queue}
+        
+        response = requests.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    
+    def retry_job(self, job_id: str, queue: str = "deep-research") -> Dict:
+        """Retry a failed job"""
+        url = f"{self.base_url}/api/admin/jobs/{job_id}/retry"
+        params = {"queue": queue}
+        
+        response = requests.post(url, headers=self.headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    
+    def get_queue_stats(self, queue: str) -> Dict:
+        """Get queue statistics"""
+        data = self.list_jobs(queue, "all", 1)
+        return data["counts"]
+
+# Usage
+client = JobManagementClient(
+    "https://api.bioagents.ai",
+    os.environ["ADMIN_API_KEY"]
+)
+
+# Get queue stats
+stats = client.get_queue_stats("deep-research")
+print(f"Active: {stats['active']}, Waiting: {stats['waiting']}")
+
+# List failed jobs
+failed = client.list_jobs("deep-research", "failed")
+for job in failed["jobs"]:
+    print(f"Failed job {job['id']}: {job.get('failedReason')}")
+    
+    # Retry if retryable
+    if job["attemptsMade"] < 3:
+        client.retry_job(job["id"])
+        print(f"  → Retried")
+```
+
+---
+
+## Error Responses
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+Missing or invalid `X-Admin-Key` header.
+
+### 404 Not Found (Queue)
+
+```json
+{
+  "error": "Queue 'invalid-queue' not found"
+}
+```
+
+### 404 Not Found (Job)
+
+```json
+{
+  "error": "Job not found"
+}
+```
+
+### 400 Bad Request (Invalid Retry)
+
+```json
+{
+  "error": "Cannot retry job in state 'completed'"
+}
+```
+
+Can only retry jobs in `failed` state.
+
+### 503 Service Unavailable
+
+```json
+{
+  "error": "Job queue not enabled",
+  "message": "Set USE_JOB_QUEUE=true to enable job queues"
+}
+```
+
+---
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# Enable job queue (required)
+USE_JOB_QUEUE=true
+
+# Redis connection (required)
+REDIS_URL=redis://localhost:6379
+
+# Admin API key (required)
+ADMIN_API_KEY=your-secure-api-key
+# OR
+ADMIN_PASSWORD=your-secure-password
+```
+
+### Queue Names
+
+- `chat` - Standard chat requests
+- `deep-research` - Deep research jobs
+- `paper-generation` - LaTeX paper generation
+- `file-process` - File upload processing
+
+---
+
+## Best Practices
+
+### 1. Use Polling for Long-Running Jobs
+
+```typescript
+async function waitForJob(jobId: string, queue: string) {
+  while (true) {
+    const job = await client.getJob(jobId, queue);
+    
+    if (job.state === 'completed') {
+      return job;
+    }
+    
+    if (job.state === 'failed') {
+      throw new Error(job.failedReason);
+    }
+    
+    // Poll every 5 seconds
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
+}
+```
+
+### 2. Monitor Queue Health
+
+```typescript
+async function checkQueueHealth(queue: string) {
+  const stats = await client.getQueueStats(queue);
+  
+  const alerts = [];
+  
+  // Check for backlog
+  if (stats.waiting > 100) {
+    alerts.push(`High queue depth: ${stats.waiting} waiting jobs`);
+  }
+  
+  // Check for failures
+  if (stats.failed > 10) {
+    alerts.push(`Many failures: ${stats.failed} failed jobs`);
+  }
+  
+  // Check for stalls
+  if (stats.active === 0 && stats.waiting > 0) {
+    alerts.push('No active workers - queue may be stalled');
+  }
+  
+  return alerts;
+}
+```
+
+### 3. Auto-Retry Failed Jobs
+
+```typescript
+async function autoRetryFailed(queue: string, maxAttempts: number = 3) {
+  const failed = await client.listJobs(queue, 'failed');
+  
+  for (const job of failed.jobs) {
+    if (job.attemptsMade < maxAttempts) {
+      console.log(`Retrying job ${job.id} (attempt ${job.attemptsMade + 1})`);
+      await client.retryJob(job.id, queue);
+    } else {
+      console.log(`Skipping job ${job.id} (max attempts reached)`);
+    }
+  }
+}
+```

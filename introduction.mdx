@@ -1,0 +1,143 @@
+---
+title: Introduction
+description: An advanced AI agent framework for biological and scientific research with state-of-the-art analysis capabilities
+---
+
+BioAgents AgentKit is an advanced AI agent framework designed for biological and scientific research. It provides powerful conversational AI capabilities with specialized knowledge in biology, life sciences, and scientific research methodologies.
+
+## State-of-the-Art Performance
+
+The BioAgents analysis agent achieves state-of-the-art performance on the BixBench benchmark, outperforming all existing solutions:
+
+![BioAgents Analysis Benchmark Results](https://ai-bio-xyz-flame.vercel.app/blog/bixbench_oa.png)
+
+| Evaluation Mode | Score |
+|-----------------|-------|
+| Open-Answer | **48.78%** |
+| Multiple-Choice (with refusal) | **55.12%** |
+| Multiple-Choice (without refusal) | **64.39%** |
+
+These results outperform Kepler, GPT-5, and others across all evaluation modes.
+
+<Note>
+**Learn more:**
+- [Introducing BioAgents](http://ai.bio.xyz/blog/introducing-bios) - Detailed blog post about our literature and analysis agents
+- [Scientific Paper (arXiv)](https://arxiv.org/abs/2601.12542) - Full technical details and methodology
+</Note>
+
+## Key Features
+
+### Configurable Research Agents
+
+BioAgents allows you to choose your primary literature and analysis agents. While multiple backends are supported, **BIO** is the recommended default:
+
+| Agent Type | Primary (BIO) | Alternative |
+|------------|---------------|-------------|
+| **Literature** | BioAgents Literature API - semantic search with LLM reranking | OpenScholar, Edison |
+| **Analysis** | BioAgents Data Analysis - state-of-the-art benchmark performance | Edison |
+
+### Agent Architecture
+
+BioAgents operates through two main modes:
+
+**Chat Mode** - Agent-based chat for general research questions with automatic literature search
+
+**Deep Research Mode** - Iterative hypothesis-driven investigation with:
+- Automatic research planning
+- Literature search and synthesis
+- Data analysis on uploaded datasets
+- Hypothesis generation and refinement
+- Research reflection and discovery tracking
+
+### Available Agents
+
+<CardGroup cols={2}>
+  <Card title="File Upload Agent" icon="upload">
+    Handles file parsing, storage, and automatic description generation. Supports PDF, Excel, CSV, MD, JSON, and TXT files.
+  </Card>
+  
+  <Card title="Planning Agent" icon="list-checks">
+    Creates research plans based on user questions, analyzes available datasets, and generates task sequences.
+  </Card>
+  
+  <Card title="Literature Agent" icon="book-open">
+    Searches and synthesizes scientific literature from multiple sources including OpenScholar, Edison, and custom knowledge bases.
+  </Card>
+  
+  <Card title="Analysis Agent" icon="chart-line">
+    Performs data analysis on uploaded datasets using Edison or BioAgents Data Analysis Agent backends.
+  </Card>
+  
+  <Card title="Hypothesis Agent" icon="lightbulb">
+    Generates testable hypotheses by synthesizing findings from literature and analysis with inline citations.
+  </Card>
+  
+  <Card title="Reflection Agent" icon="message-circle">
+    Extracts key insights and discoveries, updates research methodology, and maintains conversation-level understanding.
+  </Card>
+</CardGroup>
+
+## Technical Capabilities
+
+### Multi-Provider LLM Support
+
+The LLM library provides a unified interface for multiple providers:
+- Anthropic (Claude models with extended thinking support)
+- OpenAI (GPT-4 and later models)
+- Google (Gemini models)
+- OpenRouter (access to various models)
+
+### Vector Database & Knowledge Base
+
+Built-in vector database with:
+- Semantic search using pgvector
+- Cohere reranker for improved results
+- Document processing from local `docs/` directory
+- Support for PDF, Markdown, DOCX, and TXT formats
+
+### Production-Ready Features
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock">
+    Support for JWT authentication and x402 USDC micropayments for pay-per-request access.
+  </Card>
+  
+  <Card title="Job Queue" icon="list">
+    BullMQ integration for horizontal scaling, job persistence, and automatic retries with Bull Board dashboard.
+  </Card>
+  
+  <Card title="File Storage" icon="database">
+    S3-compatible storage integration for dataset uploads and analysis artifacts.
+  </Card>
+  
+  <Card title="WebSocket Support" icon="rss">
+    Real-time notifications for job progress and status updates.
+  </Card>
+</CardGroup>
+
+## Tech Stack
+
+BioAgents is built with modern technologies:
+
+- **Runtime**: Bun - A fast all-in-one JavaScript runtime
+- **Web Framework**: Elysia - High-performance web framework
+- **Database**: Supabase (PostgreSQL) with pgvector extension
+- **Frontend**: Preact - Lightweight React alternative
+- **Job Queue**: BullMQ with Redis (optional)
+- **Payment Protocol**: x402 with Coinbase embedded wallets
+
+<Note>
+BioAgents is designed to be modular and extensible. You can start with the basic setup and add advanced features like job queues, payment protocols, and custom analysis backends as your needs grow.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running in minutes with the essential setup guide
+  </Card>
+  
+  <Card title="Setup Guide" icon="cog" href="/setup">
+    Complete configuration guide for all features and integrations
+  </Card>
+</CardGroup>

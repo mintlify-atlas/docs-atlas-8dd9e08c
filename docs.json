@@ -1,122 +1,146 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "BioAgents",
+  "theme": "sequoia",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#9cb484",
+    "light": "#c4cdba",
+    "dark": "#7A996A"
   },
   "favicon": "/favicon.svg",
+  "logo": {
+    "light": "https://media.brand.dev/d8637269-a8e4-45d2-b275-a444c3820866.svg",
+    "dark": "https://media.brand.dev/d8637269-a8e4-45d2-b275-a444c3820866.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/bio-xyz/BioAgents"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/bio-xyz/BioAgents"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "setup"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/architecture",
+              "concepts/agents",
+              "concepts/deep-research",
+              "concepts/state-management"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Agents",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "agents/overview",
+              "agents/literature",
+              "agents/analysis",
+              "agents/planning",
+              "agents/hypothesis",
+              "agents/reflection",
+              "agents/discovery",
+              "agents/file-upload",
+              "agents/reply"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Configuration",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "configuration/environment",
+              "configuration/llm-providers",
+              "configuration/authentication",
+              "configuration/storage",
+              "configuration/character"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/chat-mode",
+              "features/deep-research-mode",
+              "features/knowledge-base",
+              "features/file-upload",
+              "features/paper-generation"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/docker",
+              "deployment/job-queue",
+              "deployment/scaling"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/custom-agents",
+              "advanced/payment-protocols",
+              "advanced/websockets",
+              "advanced/rate-limiting"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core Endpoints",
             "pages": [
-              "api-reference/introduction"
+              "api/chat",
+              "api/deep-research",
+              "api/status",
+              "api/health"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "File Management",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/files",
+              "api/artifacts"
+            ]
+          },
+          {
+            "group": "Paper Generation",
+            "pages": [
+              "api/paper-generation",
+              "api/paper-retrieval"
+            ]
+          },
+          {
+            "group": "Payment Endpoints",
+            "pages": [
+              "api/x402",
+              "api/b402"
+            ]
+          },
+          {
+            "group": "Admin",
+            "pages": [
+              "api/queue-dashboard",
+              "api/job-management"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,191 @@
+---
+title: "Agents Overview"
+description: "Introduction to BioAgents' multi-agent architecture for scientific research"
+icon: "users"
+---
+
+BioAgents uses a multi-agent architecture where specialized agents collaborate to perform autonomous scientific research. Each agent is an independent, self-contained function that performs a specific task in the research workflow.
+
+## Agent Types
+
+BioAgents includes 7 core agents:
+
+<CardGroup cols={2}>
+  <Card title="File Upload Agent" icon="upload" href="/agents/file-upload">
+    Parses and stores uploaded datasets with AI-generated descriptions
+  </Card>
+  <Card title="Planning Agent" icon="list-check" href="/agents/planning">
+    Creates research plans based on user questions and current state
+  </Card>
+  <Card title="Literature Agent" icon="book-open" href="/agents/literature">
+    Searches scientific literature across multiple backends
+  </Card>
+  <Card title="Analysis Agent" icon="chart-line" href="/agents/analysis">
+    Performs data analysis on uploaded datasets
+  </Card>
+  <Card title="Hypothesis Agent" icon="lightbulb" href="/agents/hypothesis">
+    Generates research hypotheses from findings
+  </Card>
+  <Card title="Reflection Agent" icon="mirror" href="/agents/reflection">
+    Extracts insights and updates methodology
+  </Card>
+  <Card title="Discovery Agent" icon="microscope" href="/agents/discovery">
+    Identifies novel scientific claims with evidence
+  </Card>
+  <Card title="Reply Agent" icon="message" href="/agents/reply">
+    Generates user-facing responses
+  </Card>
+</CardGroup>
+
+## Agent Architecture
+
+### Independent Functions
+
+Each agent is a self-contained function that:
+- Takes specific inputs
+- Performs a single responsibility
+- Returns structured outputs
+- Does not directly modify global state
+
+```typescript
+// src/agents/literature/index.ts
+export async function literatureAgent(input: {
+  objective: string;
+  type: LiteratureType;
+  onPollUpdate?: OnPollUpdate;
+}): Promise<LiteratureResult> {
+  // Search literature based on type
+  // Return results with timing information
+}
+```
+
+### State Management
+
+Agents read from and write to two types of state:
+
+- **Message State**: Ephemeral, tied to a single message
+- **Conversation State**: Persistent across the entire conversation
+
+See [State Management](/concepts/state-management) for details.
+
+## Agent Collaboration
+
+### Chat Mode
+
+In chat mode, agents execute sequentially:
+
+<Steps>
+  <Step title="File Upload">
+    Process any uploaded files
+  </Step>
+  <Step title="Planning">
+    Generate literature search tasks
+  </Step>
+  <Step title="Literature">
+    Execute literature searches in parallel
+  </Step>
+  <Step title="Hypothesis">
+    Generate hypothesis if needed
+  </Step>
+  <Step title="Reflection">
+    Extract insights and update state
+  </Step>
+  <Step title="Reply">
+    Generate concise user response
+  </Step>
+</Steps>
+
+### Deep Research Mode
+
+In deep research mode, agents execute in an iterative cycle:
+
+<Steps>
+  <Step title="Planning">
+    Plan both LITERATURE and ANALYSIS tasks
+  </Step>
+  <Step title="Execution">
+    Execute tasks in parallel with deduplication
+  </Step>
+  <Step title="Hypothesis">
+    Synthesize findings into scientific claims
+  </Step>
+  <Step title="Reflection">
+    Update world state with insights
+  </Step>
+  <Step title="Discovery">
+    Identify novel claims with evidence links
+  </Step>
+  <Step title="Continue Decision">
+    Decide whether to continue autonomously
+  </Step>
+  <Step title="Reply">
+    Generate response with next steps
+  </Step>
+</Steps>
+
+## Creating Custom Agents
+
+You can create custom agents for specialized tasks. See the [Custom Agents](/advanced/custom-agents) guide for details.
+
+### Agent Template
+
+```typescript
+import logger from "../../utils/logger";
+
+export async function myAgent(input: {
+  // Define inputs
+}): Promise<MyResult> {
+  const start = new Date().toISOString();
+  
+  logger.info({ input }, "my_agent_started");
+  
+  try {
+    // Perform agent logic
+    
+    return {
+      // Return structured output
+    };
+  } catch (err) {
+    logger.error({ err }, "my_agent_failed");
+    throw err;
+  }
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Keep agents focused">
+    Each agent should have a single, clear responsibility. Don't create "god agents" that do everything.
+  </Accordion>
+  
+  <Accordion title="Make agents reusable">
+    Design agents to work across different routes and contexts. Avoid route-specific logic.
+  </Accordion>
+  
+  <Accordion title="Use structured outputs">
+    Return TypeScript types with clear fields. This makes agents composable and testable.
+  </Accordion>
+  
+  <Accordion title="Log extensively">
+    Use structured logging for debugging and monitoring. Include timing information.
+  </Accordion>
+  
+  <Accordion title="Handle errors gracefully">
+    Catch errors and return informative error messages. Don't let one agent crash the entire workflow.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Architecture" icon="diagram-project" href="/concepts/architecture">
+    Understand the overall system design
+  </Card>
+  <Card title="Deep Research" icon="flask" href="/concepts/deep-research">
+    Learn about the iterative research cycle
+  </Card>
+  <Card title="Custom Agents" icon="code" href="/advanced/custom-agents">
+    Build your own specialized agents
+  </Card>
+</CardGroup>

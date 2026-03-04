@@ -1,0 +1,267 @@
+---
+title: "Planning Agent"
+description: "Create research plans based on user questions and state"
+icon: "list-check"
+---
+
+The Planning Agent generates research plans by deciding which tasks to execute (LITERATURE or ANALYSIS) based on the user's question, available datasets, and current research context.
+
+## Function Signature
+
+```typescript
+// src/agents/planning/index.ts
+export async function planningAgent(input: {
+  state: State;
+  conversationState: ConversationState;
+  message: Message;
+  mode?: PlanningMode;
+  usageType?: TokenUsageType;
+  researchMode?: ResearchMode;
+}): Promise<PlanningResult>;
+
+type PlanningMode = "initial" | "next";
+type ResearchMode = "semi-autonomous" | "fully-autonomous" | "steering";
+
+type PlanningResult = {
+  currentObjective: string;
+  plan: Array<PlanTask>;
+};
+```
+
+## Planning Modes
+
+### Initial Mode
+
+Creates tasks for the current iteration (default, used at start of each message).
+
+```typescript
+const result = await planningAgent({
+  state,
+  conversationState,
+  message,
+  mode: "initial",
+  usageType: "deep-research"
+});
+
+// Returns:
+// {
+//   currentObjective: "Investigate mechanisms of cellular senescence",
+//   plan: [
+//     {
+//       id: "task-1",
+//       type: "LITERATURE",
+//       objective: "Search for papers on p53 and cellular senescence",
+//       level: "MAX"
+//     },
+//     {
+//       id: "task-2",
+//       type: "ANALYSIS",
+//       objective: "Analyze expression of senescence markers",
+//       datasets: [{ filename: "expression.csv", id: "dataset-1", ... }],
+//       level: "MAX"
+//     }
+//   ]
+// }
+```
+
+### Next Mode
+
+Updates plan for next iteration after reflection (used after hypothesis + reflection).
+
+```typescript
+const result = await planningAgent({
+  state,
+  conversationState,
+  message,
+  mode: "next",
+  usageType: "deep-research",
+  researchMode: "semi-autonomous"
+});
+
+// Generates follow-up tasks based on:
+// - Current hypothesis
+// - Key insights from reflection
+// - Previous task outputs
+// - Available datasets
+```
+
+## Research Modes
+
+<Tabs>
+  <Tab title="Semi-Autonomous">
+    Default mode. Asks user for approval before each iteration.
+    
+    ```typescript
+    planningAgent({
+      // ...
+      researchMode: "semi-autonomous"
+    });
+    ```
+    
+    The agent generates suggestions but waits for user confirmation.
+  </Tab>
+  
+  <Tab title="Fully Autonomous">
+    Continues automatically up to 20 iterations without user input.
+    
+    ```typescript
+    planningAgent({
+      // ...
+      researchMode: "fully-autonomous"
+    });
+    ```
+    
+    Used when user explicitly requests autonomous research.
+  </Tab>
+  
+  <Tab title="Steering">
+    User provides specific next steps instead of agent suggestions.
+    
+    ```typescript
+    planningAgent({
+      // ...
+      researchMode: "steering"
+    });
+    ```
+    
+    Agent follows user's explicit guidance.
+  </Tab>
+</Tabs>
+
+## Task Types
+
+### LITERATURE Tasks
+
+Search scientific literature across configured backends:
+
+```json
+{
+  "type": "LITERATURE",
+  "objective": "Search for recent advances in CRISPR gene editing",
+  "level": "MAX"
+}
+```
+
+Executed by [Literature Agent](/agents/literature).
+
+### ANALYSIS Tasks
+
+Perform data analysis on uploaded datasets:
+
+```json
+{
+  "type": "ANALYSIS",
+  "objective": "Analyze differential gene expression between treatment groups",
+  "datasets": [
+    {
+      "filename": "expression_matrix.csv",
+      "id": "dataset-123",
+      "description": "RNA-seq expression data",
+      "path": "uploads/expression_matrix.csv"
+    }
+  ],
+  "level": "MAX"
+}
+```
+
+Executed by [Analysis Agent](/agents/analysis).
+
+## Task Levels
+
+The planning agent assigns priority levels to tasks:
+
+- **MAX**: High-priority tasks executed in current iteration
+- **HIGH**: Important tasks for future iterations
+- **MEDIUM**: Optional follow-up tasks
+- **LOW**: Nice-to-have explorations
+
+Only **MAX** level tasks are executed immediately. See [Deep Research](/concepts/deep-research#task-leveling) for details.
+
+## Usage Example
+
+```typescript
+// src/routes/chat.ts
+const planningResult = await planningAgent({
+  state,
+  conversationState,
+  message,
+  mode: "initial",
+  usageType: "chat"
+});
+
+const plan = planningResult.plan;
+const literatureTasks = plan.filter(task => task.type === "LITERATURE");
+
+// Execute only literature tasks in chat mode
+for (const task of literatureTasks) {
+  const result = await literatureAgent({
+    objective: task.objective,
+    type: "OPENSCHOLAR"
+  });
+  task.output = result.output;
+}
+```
+
+## Configuration
+
+<ParamField path="PLANNING_LLM_PROVIDER" type="string" default="google">
+  LLM provider: `openai`, `anthropic`, `google`, or `openrouter`
+</ParamField>
+
+<ParamField path="PLANNING_LLM_MODEL" type="string" default="gemini-2.5-flash">
+  Model name for planning agent
+</ParamField>
+
+<ParamField path="MAX_AUTO_ITERATIONS" type="number" default="5">
+  Maximum autonomous iterations (semi-autonomous mode)
+</ParamField>
+
+## Prompts
+
+The agent uses different prompts based on context:
+
+<AccordionGroup>
+  <Accordion title="Initial planning (no prior plan)">
+    When starting fresh, creates initial literature search plan:
+    
+    ```typescript
+    // src/agents/planning/prompts.ts:INITIAL_PLANNING_NO_PLAN_PROMPT
+    ```
+    
+    Focuses on understanding the question before diving into analysis.
+  </Accordion>
+  
+  <Accordion title="Initial planning (with prior plan)">
+    When continuing research, considers previous tasks:
+    
+    ```typescript
+    // src/agents/planning/prompts.ts:INITIAL_PLANNING_PROMPT
+    ```
+    
+    Avoids redundant searches and builds on previous findings.
+  </Accordion>
+  
+  <Accordion title="Next iteration planning">
+    After reflection, plans follow-up tasks:
+    
+    ```typescript
+    // src/agents/planning/prompts.ts:NEXT_PLANNING_PROMPT
+    ```
+    
+    Incorporates hypothesis, insights, and methodology updates.
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Deep Research" icon="flask" href="/concepts/deep-research">
+    Iterative research workflow
+  </Card>
+  <Card title="Literature Agent" icon="book-open" href="/agents/literature">
+    Executes literature tasks
+  </Card>
+  <Card title="Analysis Agent" icon="chart-line" href="/agents/analysis">
+    Executes analysis tasks
+  </Card>
+</CardGroup>

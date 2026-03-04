@@ -1,0 +1,430 @@
+---
+title: "Status API"
+description: "Check the progress and results of deep research investigations"
+api: "GET /api/deep-research/status/:messageId"
+---
+
+## Overview
+
+The Status API allows you to check the progress of deep research jobs, retrieve completed results, and monitor active research cycles.
+
+## Authentication
+
+Authentication is required and enforces ownership validation.
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for JWT authentication
+</ParamField>
+
+<ParamField header="X-API-Key" type="string">
+  Alternative API key authentication
+</ParamField>
+
+---
+
+## GET /api/deep-research/status/:messageId
+
+Retrieve the current status of a deep research investigation.
+
+### Path Parameters
+
+<ParamField path="messageId" type="string" required>
+  The message ID returned from POST /api/deep-research/start
+</ParamField>
+
+### Security
+
+- User can only access their own research jobs
+- userId extracted from authenticated context (never from query params)
+- Returns `403 Forbidden` if accessing another user's job
+
+### Response: Processing
+
+Returned when research is still running.
+
+<ResponseField name="status" type="string">
+  Current status: `processing`
+</ResponseField>
+
+<ResponseField name="messageId" type="string">
+  The message ID being tracked
+</ResponseField>
+
+<ResponseField name="conversationId" type="string">
+  Associated conversation ID
+</ResponseField>
+
+<ResponseField name="progress" type="object">
+  Progress information
+  
+  <Expandable title="progress properties">
+    <ResponseField name="currentStep" type="string">
+      Name of currently executing step (e.g., "literature_search", "hypothesis_generation")
+    </ResponseField>
+    
+    <ResponseField name="completedSteps" type="string[]">
+      Array of completed step names
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Response: Completed
+
+Returned when research has finished successfully.
+
+<ResponseField name="status" type="string">
+  Status: `completed`
+</ResponseField>
+
+<ResponseField name="messageId" type="string">
+  The message ID
+</ResponseField>
+
+<ResponseField name="conversationId" type="string">
+  Conversation ID
+</ResponseField>
+
+<ResponseField name="result" type="object">
+  Research results
+  
+  <Expandable title="result properties">
+    <ResponseField name="text" type="string">
+      Final research summary with hypothesis, insights, and discoveries
+    </ResponseField>
+    
+    <ResponseField name="files" type="array">
+      Array of generated files (plots, figures, datasets)
+      
+      <Expandable title="file properties">
+        <ResponseField name="filename" type="string">
+          File name
+        </ResponseField>
+        
+        <ResponseField name="mimeType" type="string">
+          MIME type (e.g., "image/png", "text/csv")
+        </ResponseField>
+        
+        <ResponseField name="size" type="number">
+          File size in bytes
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="papers" type="array">
+      Array of relevant papers from literature search
+      
+      <Expandable title="paper properties">
+        <ResponseField name="title" type="string">
+          Paper title
+        </ResponseField>
+        
+        <ResponseField name="authors" type="string[]">
+          Author names
+        </ResponseField>
+        
+        <ResponseField name="doi" type="string">
+          DOI identifier
+        </ResponseField>
+        
+        <ResponseField name="year" type="number">
+          Publication year
+        </ResponseField>
+        
+        <ResponseField name="abstract" type="string">
+          Paper abstract
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="webSearchResults" type="array">
+      Web search results if web search was performed
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Response: Failed
+
+Returned when research encountered an error.
+
+<ResponseField name="status" type="string">
+  Status: `failed`
+</ResponseField>
+
+<ResponseField name="messageId" type="string">
+  The message ID
+</ResponseField>
+
+<ResponseField name="conversationId" type="string">
+  Conversation ID
+</ResponseField>
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+---
+
+## Examples
+
+### Example: Check Status (Processing)
+
+```bash
+curl https://api.bioagents.xyz/api/deep-research/status/msg_abc123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "status": "processing",
+  "messageId": "msg_abc123",
+  "conversationId": "conv_xyz789",
+  "progress": {
+    "currentStep": "analysis_execution",
+    "completedSteps": [
+      "planning",
+      "literature_search",
+      "hypothesis_generation"
+    ]
+  }
+}
+```
+
+### Example: Check Status (Completed)
+
+```bash
+curl https://api.bioagents.xyz/api/deep-research/status/msg_abc123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "status": "completed",
+  "messageId": "msg_abc123",
+  "conversationId": "conv_xyz789",
+  "result": {
+    "text": "## Research Summary\n\nCaloric restriction extends lifespan through multiple conserved pathways...\n\n## Hypothesis\n\nCaloric restriction activates AMPK and inhibits mTOR, leading to increased autophagy and improved proteostasis, which extends cellular lifespan...\n\n## Key Insights\n\n1. mTOR inhibition is both necessary and sufficient for CR-mediated longevity\n2. AMPK activation precedes autophagy induction by 2-4 hours\n3. Sirtuins require NAD+ availability for lifespan extension\n\n## Discoveries\n\n**Novel Finding 1**: TFEB nuclear translocation correlates with lifespan extension (r=0.89, p<0.001)\n- Evidence: Analysis task ana-2 (job_xyz123)\n- Supporting literature: doi:10.1016/j.celrep.2016.12.063\n\n**Novel Finding 2**: CR upregulates Atg7 expression 1.52-fold before detectable autophagy flux changes\n- Evidence: Analysis task ana-2 (job_xyz123)\n- Supporting literature: doi:10.1038/nature24630",
+    "files": [
+      {
+        "filename": "gene_expression_heatmap.png",
+        "mimeType": "image/png",
+        "size": 245678
+      },
+      {
+        "filename": "lifespan_correlation.png",
+        "mimeType": "image/png",
+        "size": 189234
+      }
+    ],
+    "papers": [
+      {
+        "title": "mTOR inhibition extends lifespan through conserved pathways",
+        "authors": ["Smith J", "Johnson A"],
+        "doi": "10.1126/science.1215135",
+        "year": 2012,
+        "abstract": "We demonstrate that pharmacological inhibition of mTOR..."
+      },
+      {
+        "title": "Autophagy gene 7 upregulation promotes longevity",
+        "authors": ["Lee K", "Park S"],
+        "doi": "10.1038/nature24630",
+        "year": 2017,
+        "abstract": "Genetic upregulation of Atg7 extends lifespan in multiple species..."
+      }
+    ]
+  }
+}
+```
+
+### Example: Check Status (Failed)
+
+```bash
+curl https://api.bioagents.xyz/api/deep-research/status/msg_abc123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "status": "failed",
+  "messageId": "msg_abc123",
+  "conversationId": "conv_xyz789",
+  "error": "Literature search service unavailable"
+}
+```
+
+---
+
+## POST /api/deep-research/retry/:jobId
+
+Manually retry a failed deep research job (only available in queue mode).
+
+### Authentication
+
+Must be the owner of the job being retried.
+
+### Path Parameters
+
+<ParamField path="jobId" type="string" required>
+  The job ID to retry
+</ParamField>
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  Whether retry was successful
+</ResponseField>
+
+<ResponseField name="jobId" type="string">
+  The job ID being retried
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  New status: `retrying`
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Human-readable status message
+</ResponseField>
+
+<ResponseField name="previousAttempts" type="number">
+  Number of previous retry attempts
+</ResponseField>
+
+### Example: Retry Failed Job
+
+```bash
+curl -X POST https://api.bioagents.xyz/api/deep-research/retry/msg_abc123 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+**Response:**
+
+```json
+{
+  "ok": true,
+  "jobId": "msg_abc123",
+  "status": "retrying",
+  "message": "Job has been queued for retry",
+  "previousAttempts": 1
+}
+```
+
+---
+
+## Error Codes
+
+<ResponseField name="400" type="Bad Request">
+  - Missing required parameter: messageId
+  - Cannot retry job in current state (must be failed)
+</ResponseField>
+
+<ResponseField name="401" type="Unauthorized">
+  Missing or invalid authentication credentials
+</ResponseField>
+
+<ResponseField name="403" type="Forbidden">
+  Attempting to access another user's research job
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  - Message not found
+  - Job not found
+  - Queue mode not enabled (for retry endpoint)
+</ResponseField>
+
+<ResponseField name="409" type="Conflict">
+  Deep research already running for this conversation (retry blocked)
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  - Message has no associated state
+  - State not found
+  - Failed to check status
+  - Job missing conversation run metadata
+</ResponseField>
+
+---
+
+## Polling Best Practices
+
+### Recommended Polling Strategy
+
+```javascript
+async function pollResearchStatus(messageId, authToken) {
+  const maxAttempts = 300; // 5 minutes with 1-second intervals
+  let attempts = 0;
+  
+  while (attempts < maxAttempts) {
+    const response = await fetch(
+      `https://api.bioagents.xyz/api/deep-research/status/${messageId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${authToken}`
+        }
+      }
+    );
+    
+    const data = await response.json();
+    
+    if (data.status === 'completed') {
+      return data.result;
+    }
+    
+    if (data.status === 'failed') {
+      throw new Error(data.error);
+    }
+    
+    // Still processing, wait before next poll
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    attempts++;
+  }
+  
+  throw new Error('Research timed out');
+}
+```
+
+### WebSocket Alternative
+
+For real-time updates, connect to WebSocket endpoint:
+
+```javascript
+const ws = new WebSocket(`wss://api.bioagents.xyz/ws?userId=${userId}`);
+
+ws.onmessage = (event) => {
+  const update = JSON.parse(event.data);
+  
+  if (update.type === 'state_updated') {
+    console.log('Research state updated:', update.conversationStateId);
+  }
+  
+  if (update.type === 'message_updated') {
+    console.log('Message content updated:', update.messageId);
+  }
+};
+```
+
+---
+
+## State Tracking
+
+The status endpoint reads from the message's associated state record:
+
+- `state.values.status`: Overall status flag
+- `state.values.steps`: Map of step names to execution timestamps
+- `state.values.finalResponse`: Completed research summary
+- `state.values.error`: Error message if failed
+- `state.values.rawFiles`: Generated artifacts
+- `state.values.*Papers`: Papers from various sources
+
+---
+
+## Related Endpoints
+
+- [Deep Research API](/api/deep-research) - Start new research
+- [Chat API](/api/chat) - Simple queries without iteration
+- [Health API](/api/health) - Service health check

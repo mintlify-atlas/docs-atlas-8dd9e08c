@@ -1,0 +1,273 @@
+---
+title: "Reply Agent"
+description: "Generate user-facing responses with next steps"
+icon: "message"
+---
+
+The Reply Agent generates user-facing responses that summarize completed work, present the hypothesis, and propose next steps. It adapts its output based on mode (chat vs deep research).
+
+## Function Signature
+
+```typescript
+// src/agents/reply/index.ts
+export async function replyAgent(input: {
+  conversationState: ConversationState;
+  message: Message;
+  completedMaxTasks: PlanTask[];
+  hypothesis?: string;
+  nextPlan: PlanTask[];
+  isFinal?: boolean;
+}): Promise<ReplyResult>;
+
+type ReplyResult = {
+  reply: string;
+  summary?: string;
+  start: string;
+  end: string;
+};
+```
+
+## Response Modes
+
+### Chat Mode
+
+Concise answers without next steps:
+
+```typescript
+const replyText = await generateChatReply(
+  question,
+  {
+    completedTasks,
+    hypothesis,
+    nextPlan: [], // No next plan in chat mode
+    keyInsights,
+    discoveries,
+    methodology,
+    currentObjective,
+    uploadedDatasets
+  },
+  {
+    maxTokens: 1024,
+    messageId,
+    usageType: "chat"
+  }
+);
+
+// Example output:
+// "Based on literature search, rapamycin extends lifespan in mice by up to 60% 
+// through mTOR pathway inhibition (Harrison et al., 2009). The mechanism involves..."
+```
+
+### Deep Research Mode
+
+Detailed response with next steps and user feedback request:
+
+```typescript
+const result = await replyAgent({
+  conversationState,
+  message,
+  completedMaxTasks,
+  hypothesis,
+  nextPlan,
+  isFinal: true
+});
+
+// Example output:
+// "I completed literature search on mTOR and aging. Key findings:
+// 
+// 1. mTOR inhibition extends lifespan across species
+// 2. Rapamycin is the primary mTOR inhibitor studied
+// 
+// Current hypothesis: mTOR-dependent translation control regulates aging.
+// 
+// Next steps:
+// - ANALYSIS: Analyze gene expression data for mTOR targets
+// - LITERATURE: Search for mTOR downstream effectors
+// 
+// Does this plan look good? Feel free to modify or add tasks."
+```
+
+## Reply Structure
+
+<Steps>
+  <Step title="Summary of work">
+    What was accomplished in this iteration:
+    
+    ```
+    I completed 2 literature searches and 1 data analysis.
+    ```
+  </Step>
+  
+  <Step title="Key findings">
+    Important results from completed tasks:
+    
+    ```
+    Key findings:
+    - p53 regulates senescence via p21 activation
+    - p21 expression increased 3.2-fold (p < 0.001)
+    ```
+  </Step>
+  
+  <Step title="Current hypothesis">
+    Present the hypothesis (if generated):
+    
+    ```
+    Current hypothesis: p53-p21 axis is the primary regulator of cellular senescence.
+    ```
+  </Step>
+  
+  <Step title="Next plan">
+    Proposed tasks for next iteration:
+    
+    ```
+    Next steps:
+    - LITERATURE: Search for p21 downstream targets
+    - ANALYSIS: Analyze SASP factor secretion
+    ```
+  </Step>
+  
+  <Step title="User feedback request">
+    Ask for confirmation or modifications:
+    
+    ```
+    Does this plan look good? Feel free to modify or add tasks.
+    ```
+  </Step>
+</Steps>
+
+## Usage Examples
+
+### Chat Route
+
+```typescript
+// src/routes/chat.ts
+const replyText = await generateChatReply(
+  message,
+  {
+    completedTasks,
+    hypothesis: hypothesisText,
+    nextPlan: [], // No next plan
+    keyInsights: conversationState.values.keyInsights || [],
+    discoveries: conversationState.values.discoveries || [],
+    methodology: conversationState.values.methodology,
+    currentObjective: conversationState.values.currentObjective,
+    uploadedDatasets: conversationState.values.uploadedDatasets || []
+  },
+  {
+    maxTokens: 1024,
+    messageId: createdMessage.id,
+    usageType: "chat"
+  }
+);
+```
+
+### Deep Research Route
+
+```typescript
+// src/routes/deep-research/start.ts
+const replyResult = await replyAgent({
+  conversationState,
+  message,
+  completedMaxTasks,
+  hypothesis: hypothesisText,
+  nextPlan,
+  isFinal: !shouldContinue // Ask for feedback if not continuing
+});
+
+const replyText = replyResult.reply;
+```
+
+## Conversation History Context
+
+The agent uses conversation history to handle continuation queries:
+
+```typescript
+// src/agents/reply/index.ts
+const conversationHistory = await fetchConversationHistory(
+  message.conversation_id
+);
+
+const resolvedQuestion = await resolveQuestionForReply(
+  message.question,
+  conversationHistory
+);
+```
+
+This enables natural responses to:
+- "continue"
+- "yes"
+- "go ahead"
+- "modify step 2 to..."
+
+## Citation Preservation
+
+The agent preserves inline citations from task outputs:
+
+```
+Input: "(Rapamycin extends lifespan)[10.1038/nature.2009.1234]"
+Output: "Based on research, rapamycin extends lifespan (Harrison et al., 2009)."
+```
+
+Citations are maintained for traceability and paper generation.
+
+## Configuration
+
+<ParamField path="REPLY_LLM_PROVIDER" type="string" default="openai">
+  LLM provider: `openai`, `anthropic`, `google`, or `openrouter`
+</ParamField>
+
+<ParamField path="REPLY_LLM_MODEL" type="string" default="gpt-5">
+  Model name for reply generation
+</ParamField>
+
+## Response Customization
+
+The agent adapts responses based on:
+
+<AccordionGroup>
+  <Accordion title="isFinal flag">
+    If `isFinal=false`, omits feedback request (autonomous continuation):
+    
+    ```typescript
+    await replyAgent({
+      // ...
+      isFinal: false
+    });
+    // Output: "Continuing to next iteration..."
+    ```
+  </Accordion>
+  
+  <Accordion title="Research mode">
+    Fully autonomous mode has different phrasing:
+    
+    ```typescript
+    // Semi-autonomous:
+    "Does this plan look good?"
+    
+    // Fully autonomous:
+    "Continuing research autonomously..."
+    ```
+  </Accordion>
+  
+  <Accordion title="Task completion">
+    If no tasks completed, focuses on planning:
+    
+    ```typescript
+    "I've created a research plan to investigate..."
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Deep Research" icon="flask" href="/concepts/deep-research">
+    Iterative research cycle
+  </Card>
+  <Card title="Chat Mode" icon="message" href="/features/chat-mode">
+    Quick Q&A workflow
+  </Card>
+  <Card title="Planning Agent" icon="list-check" href="/agents/planning">
+    Generates next steps
+  </Card>
+</CardGroup>
